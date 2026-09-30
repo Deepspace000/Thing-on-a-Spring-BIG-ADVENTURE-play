@@ -54,7 +54,7 @@ const G = window.G = {
   H: 200,        // logical view height (C64 screen height)
   W: 320,        // logical view width (adaptive, set by main.js)
   HUD_H: 22,     // height of the top HUD bar
-  VERSION: '1.40', // shown on the title screen; goes up by 0.01 with every build handed over
+  VERSION: '1.41', // shown on the title screen; goes up by 0.01 with every build handed over
   FPS: 60
 };
 
@@ -16043,7 +16043,6 @@ G.Game = (function () {
   function titleItems() {
     const it = [{t: 'NEW GAME', a: 'new'}];
     if (hasSave) it.push({t: 'CONTINUE', a: 'cont'});
-    it.push({t: 'TRY THE CASTLE', a: 'castle'});
     if (G.LEVELSELECT) it.push({t: 'LEVEL SELECT', a: 'levels'});
     it.push({t: 'SOUND: ' + (G.Audio.muted ? 'OFF' : 'ON'), a: 'snd'});
     return it;
