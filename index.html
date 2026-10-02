@@ -54,7 +54,7 @@ const G = window.G = {
   H: 200,        // logical view height (C64 screen height)
   W: 320,        // logical view width (adaptive, set by main.js)
   HUD_H: 22,     // height of the top HUD bar
-  VERSION: '1.53', // shown on the title screen; goes up by 0.01 with every build handed over
+  VERSION: '1.54', // shown on the title screen; goes up by 0.01 with every build handed over
   FPS: 60
 };
 
@@ -323,19 +323,20 @@ G.Input = (function () {
   const drag = {down: false, x: 0, y: 0, id: -1};           // a press on the canvas, followed until it is let go
   const touch = {l: false, r: false, u: false, d: false, jump: false, duck: false};
   const s = {l: false, r: false, u: false, d: false, f: false, ru: false, rf: false};   // merged held state; ru / rf = Up / Fire before the jump merge
-  const hit = {f: false, start: false, u: false, d: false, l: false, r: false, mute: false, tap: false, ptr: false, back: false, full: false, ok: false, mu: false, enter: false, ru: false, rf: false};
+  const hit = {f: false, start: false, u: false, d: false, l: false, r: false, mute: false, mini: false, tap: false, ptr: false, back: false, full: false, ok: false, mu: false, enter: false, ru: false, rf: false};
   const prev = {f: false, u: false, d: false, l: false, r: false, start: false, back: false, ok: false, mu: false, enter: false, ru: false, rf: false};
   let padPrevMute = false;
   const heroScreen = {x: 160, y: 120};
   let touchMode = false, lastDevice = 'kbd';
 
-  const GAMEKEYS = new Set(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Space','KeyW','KeyA','KeyS','KeyD','Enter','Escape','KeyP','KeyM','KeyZ','KeyX','KeyK','KeyJ','Tab','KeyB','KeyC','KeyE']);
+  const GAMEKEYS = new Set(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Space','KeyW','KeyA','KeyS','KeyD','Enter','Escape','KeyP','KeyM','KeyZ','KeyX','KeyK','KeyJ','Tab','KeyB','KeyC','KeyE','KeyV']);
   addEventListener('keydown', e => {
     if (GAMEKEYS.has(e.code)) e.preventDefault();
     if (!keys[e.code]) {
       keys[e.code] = true; latch[e.code] = true; lastDevice = 'kbd'; if (G.Audio) G.Audio.unlock(); hit.tap = true;
       if (e.code === 'KeyM') hit.map = true;
       if (e.code === 'KeyN') hit.mute = true;
+      if (e.code === 'KeyV') hit.mini = true;                              // the minimap on or off
       if (e.code === 'KeyP') hit.puzzle = true;
       if (e.code === 'KeyF') hit.full = true;
       if (e.code === 'KeyB' || e.code === 'KeyC' || e.code === 'KeyE') hit.bomb = true;         // throw a bomb
@@ -16327,6 +16328,49 @@ G.Game = (function () {
   const TITLE_Y0 = 120, TITLE_STEP = 14, PAUSE_Y0 = 50, PAUSE_STEP = 11;
   const titleY0 = n => n > 4 ? 118 : TITLE_Y0, titleStepOf = n => n > 4 ? 11 : TITLE_STEP;     // (five rows fit closer together)
   let hasSave = false, travel = [], quitArm = false;
+  // ---- the minimap (V, or MINIMAP in the pause menu): 112 x 72 tiles round Thing in 56 x 36 px, each pixel 2 x 2 tiles ----
+  const MW = 56, MH = 36;
+  let miniOn = lsGet('thingbig.mini') !== '0', miniCv = null, miniT = -99, miniX = 0, miniY = 0;
+  function toggleMini() { miniOn = !miniOn; lsSet('thingbig.mini', miniOn ? '1' : '0'); }
+  function drawMini(ctx) {
+    if (!miniOn || camLock) return;
+    const tx0 = (H.cx() >> 3) - MW, ty0 = ((H.feet() - 8) >> 3) - MH, WW = W.W;
+    if (!miniCv) miniCv = G.mkCanvas(MW, MH);
+    if (tick - miniT >= 6 || tx0 !== miniX || ty0 !== miniY) {
+      miniT = tick; miniX = tx0; miniY = ty0;
+      const x = miniCv.getContext('2d'), D = G.Tiles.D, COL = [null, PAL[6], PAL[14], PAL[15], PAL[2]];
+      x.clearRect(0, 0, MW, MH);
+      for (let py = 0; py < MH; py++) for (let px = 0; px < MW; px++) {
+        let best = 0;
+        for (let k = 0; k < 4; k++) {
+          const tx = tx0 + px * 2 + (k & 1), ty = ty0 + py * 2 + (k >> 1);
+          if (ty < 0 || ty >= W.H) continue;
+          const id = W.at(W.wrap ? ((tx % WW) + WW) % WW : tx, ty); if (!id) continue;
+          const d = D[id], kind = W.KIND[id];
+          const p = id === G.T_.LAVA || kind === 3 ? 4 : (kind === 1 ? 3 : (kind === 2 ? 2 : (id === G.T_.WATER ? 1 : 0)));
+          if (p > best) best = p;
+        }
+        if (best) { x.fillStyle = COL[best]; x.fillRect(px, py, 1, 1); }
+      }
+    }
+    const bx = G.W - MW - 4, by = HUD_H + 3;
+    ctx.fillStyle = PAL[0]; ctx.fillRect(bx - 1, by - 1, MW + 2, MH + 2);
+    ctx.globalAlpha = 0.72; ctx.fillStyle = '#0e1330'; ctx.fillRect(bx, by, MW, MH); ctx.globalAlpha = 1;
+    ctx.drawImage(miniCv, bx, by);
+    const at = (tx, ty) => [bx + (tx - tx0) / 2, by + (ty - ty0) / 2];
+    // the part of the world on the screen
+    const [vx, vy] = at(cam.x / 8, cam.y / 8);
+    ctx.strokeStyle = PAL[1]; ctx.lineWidth = 1; ctx.strokeRect(Math.round(vx) + 0.5, Math.round(vy) + 0.5, Math.round(G.W / 16), Math.round(VH / 16));
+    // save lamps, and (with the Piece Map) the pieces not found yet
+    for (const l of L.lamps || []) { const [x, y] = at(l.x, l.y); if (x >= bx && x < bx + MW && y >= by && y < by + MH) { ctx.fillStyle = PAL[7]; ctx.fillRect(Math.round(x), Math.round(y), 1, 1); } }
+    if (G.hasPower && G.hasPower('piecemap') && ((tick >> 3) & 1)) {
+      const S = Gm.st, taken = (S && S.taken) || {};
+      for (const e of L.ents || []) if (e[0] === 'jig' && !taken['jig:' + e[1] + ':' + e[2]] && !(S.pk && e[3] && S.pk[e[3].n])) {
+        const [x, y] = at(e[1], e[2]); if (x >= bx && x < bx + MW && y >= by && y < by + MH) { ctx.fillStyle = PAL[10]; ctx.fillRect(Math.round(x), Math.round(y), 1, 1); }
+      }
+    }
+    if ((tick >> 3) & 1) { const [hx, hy] = at(H.cx() / 8, (H.feet() - 8) / 8); ctx.fillStyle = PAL[1]; ctx.fillRect(Math.round(hx) - 1, Math.round(hy) - 1, 2, 2); }
+  }
   // ---- the save as a file: export it to move it to another device or browser, import it there ----
   let saveMsg = '', saveMsgT = 0;
   function saveNote(t) { saveMsg = t; saveMsgT = 420; }
@@ -16408,7 +16452,7 @@ G.Game = (function () {
   }
   function pauseLabels() {
     return ['RESUME', travel.length ? '{ ' + travel[tsel].label + ' }' : 'NO LAMPS LIT YET', 'SOUND: ' + (G.Audio.muted ? 'OFF' : 'ON'),
-            'SEE THE PUZZLE', 'SEE THE MAP', 'ACHIEVEMENTS ' + G.Ach.count() + '/' + G.Ach.LIST.length, 'I AM STUCK', quitArm ? 'PRESS AGAIN TO QUIT' : 'QUIT TO TITLE'];
+            'SEE THE PUZZLE', 'SEE THE MAP', 'MINIMAP: ' + (miniOn ? 'ON' : 'OFF'), 'ACHIEVEMENTS ' + G.Ach.count() + '/' + G.Ach.LIST.length, 'I AM STUCK', quitArm ? 'PRESS AGAIN TO QUIT' : 'QUIT TO TITLE'];
   }
   // I AM STUCK: back to where Thing first stood in the room he is in (each factory screen counts as a room)
   function noteRoom() {
@@ -16441,7 +16485,7 @@ G.Game = (function () {
       if (IN.take('l')) { tsel = (tsel + travel.length - 1) % travel.length; sfx('menu'); }
       if (IN.take('r')) { tsel = (tsel + 1) % travel.length; sfx('menu'); }
     } else if (!tapped && sel === 2 && (IN.take('l') || IN.take('r'))) toggleSound();
-    const a = menuNav(8, PAUSE_Y0, PAUSE_STEP);
+    const a = menuNav(9, PAUSE_Y0, PAUSE_STEP);
     if (a === 1 && travel.length && tapped) {   // tapping the arrows cycles, the middle travels
       if (tapX < G.W * 0.3) { tsel = (tsel + travel.length - 1) % travel.length; sfx('menu'); return; }
       if (tapX > G.W * 0.7) { tsel = (tsel + 1) % travel.length; sfx('menu'); return; }
@@ -16451,9 +16495,10 @@ G.Game = (function () {
     else if (a === 2) toggleSound();
     else if (a === 3) { openPuzzle('pause'); sfx('menu'); }
     else if (a === 4) { openMap('pause'); sfx('menu'); }
-    else if (a === 5) { openAch('pause'); sfx('menu'); }
-    else if (a === 6) unstick();
-    else if (a === 7) { if (quitArm) toTitle(); else { quitArm = true; sfx('menu'); } }
+    else if (a === 5) { toggleMini(); sfx('menu'); }
+    else if (a === 6) { openAch('pause'); sfx('menu'); }
+    else if (a === 7) unstick();
+    else if (a === 8) { if (quitArm) toTitle(); else { quitArm = true; sfx('menu'); } }
   }
   // the jigsaw page: every piece found so far in its place, the missing ones as dark holes
   let slot = null, puzzleBack = 'play', mapBack = 'play';
@@ -16755,6 +16800,7 @@ G.Game = (function () {
 
   Gm.update = function () {
     tick++;
+    if (IN.take('mini') && mode === 'play') { toggleMini(); Gm.toast(miniOn ? 'MINIMAP ON' : 'MINIMAP OFF'); }
     if (IN.take('mute')) { G.Audio.toggleMute(); if (mode === 'play') Gm.toast(G.Audio.muted ? 'SOUND OFF' : 'SOUND ON'); }
     if (IN.take('full') && G.toggleFull) G.toggleFull();
     if (mode === 'title') titleStep();
@@ -16967,7 +17013,7 @@ G.Game = (function () {
     const vw = G.W, cx = vw / 2, lit = L.lamps.filter(l => Gm.st.lit['lamp:' + l.x + ':' + l.y]).length;
     veil(ctx, 0.62, 0, HUD_H, vw, VH);
     F.draw(ctx, 'PAUSED', cx, 22, 7, {align: 'c', sc: 3, shadow: 2});
-    menuRows(ctx, pauseLabels(), PAUSE_Y0, PAUSE_STEP, cx, [0, !travel.length, 0, 0, 0, 0, 0, 0]);
+    menuRows(ctx, pauseLabels(), PAUSE_Y0, PAUSE_STEP, cx, [0, !travel.length, 0, 0, 0, 0, 0, 0, 0]);
     const S = Gm.st, pw = Object.keys(S.pw || {}).map(k => G.POWERS && G.POWERS[k] ? G.POWERS[k].name : k), ks = Object.keys(S.keys || {}).map(k => k.toUpperCase());
     F.draw(ctx, 'LAMPS LIT ' + lit + '/' + L.lamps.length, cx, 144, 13, {align: 'c'});
     const pwt = pw.length ? 'POWERS: ' + pw.join(', ') : 'NO POWERS YET';
@@ -17019,6 +17065,7 @@ G.Game = (function () {
     else if (mode === 'play' || mode === 'pause' || mode === 'win') {
       drawScene(ctx, false, true);
       if (mode === 'play') bossBar(ctx);
+      if (mode === 'play') drawMini(ctx);
       if (mode === 'play' && IN.device === 'mouse' && IN.mouse.l) {
         ctx.fillStyle = PAL[1]; const mx = Math.round(IN.mouse.x), my = Math.round(IN.mouse.y);
         ctx.fillRect(mx - 3, my, 7, 1); ctx.fillRect(mx, my - 3, 1, 7);
