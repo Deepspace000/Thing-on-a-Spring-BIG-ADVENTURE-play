@@ -52,7 +52,7 @@ const G = window.G = {
   H: 200,        // logical view height (C64 screen height)
   W: 320,        // logical view width (adaptive, set by main.js)
   HUD_H: 22,     // height of the top HUD bar
-  VERSION: '1.57', // shown on the title screen; goes up by 0.01 with every build handed over
+  VERSION: '1.58', // shown on the title screen; goes up by 0.01 with every build handed over
   FPS: 60
 };
 
@@ -10458,7 +10458,7 @@ G.Ents = (function () {
         if (GM().toast) GM().toast('BOMBS! ' + (tch ? 'TAP BOMB' : 'PRESS E') + ' TO THROW ONE. IT BOUNCES AT THE NEAREST CREATURE. YOU CAN CARRY 10');
       } else if (GM().toast) GM().toast('BOMBS: ' + S.bombs);
     },
-    draw(e, ctx, x, y) { A.draw(ctx, 'bombpack', (e.t >> 3) & 1, 1, x, y - 1); }});
+    draw(e, ctx, x, y) { A.draw(ctx, e.art || 'bombpack', (e.t >> 3) & 1, 1, x, y - 1); }});
 
   // hit a creature as a jump on it would; returns whether it was hit
   E.bombHit = function (o) {
@@ -15322,7 +15322,7 @@ G.Level = (function () {
     L.rollBombs();
   }
   L.rollBombs = function () {
-    for (let i = L.ents.length - 1; i >= 0; i--) if (L.ents[i][0] === 'bombs') L.ents.splice(i, 1);
+    for (let i = L.ents.length - 1; i >= 0; i--) if (L.ents[i][0] === 'bombs' && !(L.ents[i][3] && L.ents[i][3].fixed)) L.ents.splice(i, 1);
     const n = Math.min(80, spots.length), used = [];
     for (let t = 0; t < n * 8 && used.length < n; t++) {
       const s = spots[(Math.random() * spots.length) | 0];
@@ -15330,7 +15330,29 @@ G.Level = (function () {
       used.push(s); L.ent('bombs', s[0], s[1], {n: 3});
     }
   };
-  L.bigParts.push(bombs);
+  // ON THE RUN (the nine Monty rooms under the factory, level_run.js): a save lamp in the House, Boiler Room, Belfry and Trophy Room (so there is one in six of the nine rooms), and two packs of bombs
+  // in every room that stay put (the others move about)
+  function montyExtras() {
+    const zs = (L.zones || []).filter(z => z.monty); if (!zs.length) return;
+    const K = (x, y) => Wd.KIND[Wd.at(x, y)], open = k => k === 0 || k === 4;
+    const busy = new Set(); for (const e of L.ents) for (let d = -2; d <= 2; d++) busy.add((e[1] + d) + ',' + e[2]);
+    const spot = (z, from, step) => {                                   // a flat bit of the floor with air above and beside it
+      const fy = z.y1 - 1;
+      for (let x = from; x > z.x0 + 4 && x < z.x1 - 6; x += step) {
+        let good = true; for (let d = -2; d <= 2 && good; d++) good = open(K(x + d, fy)) && open(K(x + d, fy - 1)) && (K(x + d, fy + 1) === 1 || K(x + d, fy + 1) === 2) && !busy.has((x + d) + ',' + fy);
+        if (good) { for (let d = -2; d <= 2; d++) busy.add((x + d) + ',' + fy); return [x, fy]; }
+      }
+      return null;
+    };
+    zs.forEach((z, i) => {
+      const has = (L.lamps || []).some(l => l.x >= z.x0 && l.x <= z.x1 && l.y >= z.y0 && l.y <= z.y1);       // (the Tree Stump, Kitchen and Mill have one already)
+      if (!has && [1, 4, 7, 8].includes(i)) { const p = spot(z, z.x0 + 20, 1) || spot(z, z.x0 + 20, -1); if (p) L.lamp(p[0], p[1], z.name); }
+      const a = spot(z, z.x0 + 8, 1), c = spot(z, z.x1 - 10, -1);
+      if (a) L.ent('bombs', a[0], a[1], {n: 3, fixed: true});
+      if (c) L.ent('bombs', c[0], c[1], {n: 3, fixed: true});
+    });
+  }
+  L.bigParts.push(montyExtras, bombs);
 })();
 </script>
 <script type="text/x-thing-js" data-f="level_sea">
