@@ -24,7 +24,7 @@ html,body{margin:0;height:100%;background:#000;overflow:hidden;touch-action:none
 #bPause{right:max(12px,env(safe-area-inset-right));top:max(8px,env(safe-area-inset-top));width:44px;height:44px;font-size:16px}
 #msg{position:fixed;left:0;right:0;top:0;padding:6px;text-align:center;color:#fff;background:#a00;font-size:13px;display:none;z-index:9}
 </style>
-</head>
+<link rel="manifest" href="manifest.webmanifest"><link rel="apple-touch-icon" href="apple-touch-icon.png"><link rel="icon" type="image/png" href="icon-192.png"><meta name="theme-color" content="#352879"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"></head>
 <body>
 <div id="stage"><canvas id="screen" width="320" height="200"></canvas></div>
 <div id="touch">
@@ -54,7 +54,7 @@ const G = window.G = {
   H: 200,        // logical view height (C64 screen height)
   W: 320,        // logical view width (adaptive, set by main.js)
   HUD_H: 22,     // height of the top HUD bar
-  VERSION: '1.48', // shown on the title screen; goes up by 0.01 with every build handed over
+  VERSION: '1.49', // shown on the title screen; goes up by 0.01 with every build handed over
   FPS: 60
 };
 
