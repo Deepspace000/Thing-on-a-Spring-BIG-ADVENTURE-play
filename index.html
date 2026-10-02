@@ -21,7 +21,6 @@ html,body{margin:0;height:100%;background:#000;overflow:hidden;touch-action:none
 #bJump{right:max(16px,env(safe-area-inset-right));bottom:calc(max(14px,env(safe-area-inset-bottom)) + 70px);width:min(24vw,104px);height:min(24vw,104px);font-size:14px}
 #bDuck{right:calc(max(16px,env(safe-area-inset-right)) + min(24vw,104px) + 10px);bottom:max(14px,env(safe-area-inset-bottom));width:min(24vw,104px);height:min(24vw,104px);font-size:14px}
 #bBomb{right:calc(max(16px,env(safe-area-inset-right)) + min(24vw,104px) + 22px);bottom:calc(max(14px,env(safe-area-inset-bottom)) + min(24vw,104px) + 22px);width:min(17vw,74px);height:min(17vw,74px);font-size:12px}
-#bPause{right:max(12px,env(safe-area-inset-right));top:max(8px,env(safe-area-inset-top));width:44px;height:44px;font-size:16px}
 #msg{position:fixed;left:0;right:0;top:0;padding:6px;text-align:center;color:#fff;background:#a00;font-size:13px;display:none;z-index:9}
 </style>
 <link rel="manifest" href="manifest.webmanifest"><link rel="apple-touch-icon" href="apple-touch-icon.png"><link rel="icon" type="image/png" href="icon-192.png"><meta name="theme-color" content="#352879"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"></head>
@@ -32,7 +31,6 @@ html,body{margin:0;height:100%;background:#000;overflow:hidden;touch-action:none
   <div id="bDuck" class="tb">DUCK</div>
   <div id="bJump" class="tb">JUMP</div>
   <div id="bBomb" class="tb">BOMB</div>
-  <div id="bPause" class="tb">II</div>
 </div>
 <div id="msg"></div>
 <script>
@@ -54,7 +52,7 @@ const G = window.G = {
   H: 200,        // logical view height (C64 screen height)
   W: 320,        // logical view width (adaptive, set by main.js)
   HUD_H: 22,     // height of the top HUD bar
-  VERSION: '1.54', // shown on the title screen; goes up by 0.01 with every build handed over
+  VERSION: '1.55', // shown on the title screen; goes up by 0.01 with every build handed over
   FPS: 60
 };
 
@@ -379,7 +377,7 @@ G.Input = (function () {
 
     // ---- touch overlay ----
     const dpad = document.getElementById('dpad'), bJump = document.getElementById('bJump'),
-          bDuck = document.getElementById('bDuck'), bPause = document.getElementById('bPause'), bBomb = document.getElementById('bBomb');
+          bDuck = document.getElementById('bDuck'), bBomb = document.getElementById('bBomb');
     function dpadCalc(e) {
       const r = dpad.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2, R = r.width / 2;
       const dx = (e.clientX - cx) / R, dy = (e.clientY - cy) / R;
@@ -407,7 +405,7 @@ G.Input = (function () {
       el.addEventListener('lostpointercapture', end);
     }
     holdBtn(bJump, 'jump'); holdBtn(bDuck, 'duck');
-    bPause.addEventListener('pointerdown', e => { e.preventDefault(); if (G.Audio) G.Audio.unlock(); hit.start = true; });
+    // (no on-screen pause button: it sat over the minimap)
     if (bBomb) {
       bBomb.addEventListener('pointerdown', e => { e.preventDefault(); setTouchMode(true); lastDevice = 'touch'; if (G.Audio) G.Audio.unlock(); bBomb.classList.add('down'); hit.bomb = true; });
       for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) bBomb.addEventListener(ev, () => bBomb.classList.remove('down'));
@@ -17110,12 +17108,6 @@ G.Game = (function () {
     if (w !== G.W || cv.width !== w) { G.W = w; cv.width = w; cv.height = G.H; }
     cv.style.width = (w * s / dpr) + 'px';
     cv.style.height = (G.H * s / dpr) + 'px';
-    const bp = document.getElementById('bPause');
-    if (bp) {
-      const r = cv.getBoundingClientRect(), hud = G.HUD_H * r.height / G.H;
-      bp.style.top = 'calc(' + Math.max(6, Math.round(r.top + hud + 6)) + 'px + env(safe-area-inset-top, 0px))';
-      bp.style.right = 'calc(' + Math.max(10, Math.round(innerWidth - r.right + 10)) + 'px + env(safe-area-inset-right, 0px))';
-    }
   }
   addEventListener('resize', layout);
   addEventListener('orientationchange', () => setTimeout(layout, 120));
