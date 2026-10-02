@@ -54,7 +54,7 @@ const G = window.G = {
   H: 200,        // logical view height (C64 screen height)
   W: 320,        // logical view width (adaptive, set by main.js)
   HUD_H: 22,     // height of the top HUD bar
-  VERSION: '1.44', // shown on the title screen; goes up by 0.01 with every build handed over
+  VERSION: '1.45', // shown on the title screen; goes up by 0.01 with every build handed over
   FPS: 60
 };
 
@@ -14962,18 +14962,6 @@ G.Level = (function () {
     ['THE LIBRARY', 3, ["I DON'T", "THINK YOU'RE", 'TURNING BACK', 'ARE YOU...'], true],
     ['THE TREASURY', 4, ['PREPARE', 'TO DIIIIEEEE'], true],
     ['THE LAVA FORGE', 5, ["I'M NOT SCARED,", "YOU'RE SCARED"], true]];
-  // THE PIECE MAP: at the entrance of the Throne Room, between its two signs, just before the Goblin King: only someone who got through the whole castle reaches it
-  L.bigParts.push(function pieceMap() {
-    const Wd = G.World, lamp = (L.lamps || []).find(l => l.label === 'THE THRONE ROOM');
-    if (!lamp) return;
-    const K = (x, y) => Wd.KIND[Wd.at(x, y)];
-    for (const d of [13, 12, 14, 11, 15, 10, 16]) {
-      const x = lamp.x + d, fy = lamp.y + 1;
-      if (K(x, fy) === 1 && K(x, fy - 1) === 0 && K(x, fy - 2) === 0) { L.ent('power', x, lamp.y, {kind: 'piecemap'}); return; }
-    }
-    L.ent('power', lamp.x + 13, lamp.y, {kind: 'piecemap'});
-  });
-
   L.bigParts.push(function warnings() {
     const Wd = G.World, K = (x, y) => Wd.KIND[Wd.at(x, y)];
     const flat = (x, fy) => [-1, 0, 1].every(d => { const k = K(x + d, fy); return k === 1 || k === 2; }) && [1, 2, 3].every(j => K(x, fy - j) === 0);
@@ -15482,7 +15470,7 @@ G.Map = (function () {
   };
   // ---- save points: the lamps Thing has lit. They show on the map, and one can be picked to start from there ----
   Mp.lamps = []; Mp.sel = -1;
-  Mp.setLamps = function (list) { Mp.lamps = list.slice().sort((a, b) => a.x - b.x); Mp.sel = -1; };
+  Mp.setLamps = function (list) { Mp.lamps = list.slice().sort((a, b) => a.x - b.x); Mp.sel = -1; Mp.hiPiece = null; };
   // pick the next save point west (d -1) or east (d 1); the first pick is the one nearest Thing
   Mp.pick = function (d) {
     const n = Mp.lamps.length; if (!n) return;
@@ -15499,6 +15487,32 @@ G.Map = (function () {
     let best = -1, bd = 9;
     Mp.lamps.forEach((t, i) => { const [x, y] = lastAt(t.x / 8 / MS, (t.y - 6) / 8 / MS), d = Math.max(Math.abs(x - mx), Math.abs(y - my)); if (d < bd) { bd = d; best = i; } });
     return best;
+  };
+  // the missing pieces (with the Piece Map), a press on one picks the nearest save point to it
+  const missing = () => {
+    if (!(G.hasPower && G.hasPower('piecemap'))) return [];
+    const S = G.Game && G.Game.st, taken = (S && S.taken) || {};
+    return ((G.Level && G.Level.ents) || []).filter(e => e[0] === 'jig' && !taken['jig:' + e[1] + ':' + e[2]]);
+  };
+  Mp.pieceHit = function (mx, my) {
+    if (!lastAt) return null;
+    let best = null, bd = 7;
+    for (const e of missing()) { const [x, y] = lastAt(e[1] / MS, e[2] / MS), d = Math.max(Math.abs(x - mx), Math.abs(y - my)); if (d < bd) { bd = d; best = e; } }
+    return best;
+  };
+  Mp.nearestLamp = function (tx, ty) {
+    const WW = G.World && G.World.W || 0; let best = -1, bd = 1e9;
+    Mp.lamps.forEach((t, i) => { let dx = Math.abs(t.x / 8 - tx); if (WW) dx = Math.min(dx, WW - dx); const d = dx * dx + (t.y / 8 - ty) * (t.y / 8 - ty); if (d < bd) { bd = d; best = i; } });
+    return best;
+  };
+  // keys: up steps through the missing pieces from west to east, picking the lamp nearest each
+  let pieceI = -1;
+  Mp.hiPiece = null;
+  Mp.nextPiece = function () {
+    const m = missing().sort((a, b) => a[1] - b[1]); if (!m.length) return false;
+    pieceI = (pieceI + 1) % m.length; Mp.hiPiece = m[pieceI];
+    const l = Mp.nearestLamp(Mp.hiPiece[1], Mp.hiPiece[2]); if (l >= 0) Mp.sel = l;
+    return true;
   };
   function saveMarks(ctx, at, tick, big, font) {
     lastAt = at;
@@ -15543,6 +15557,7 @@ G.Map = (function () {
       const [x, y] = at(e[1], e[2]), px = Math.round(x), py = Math.round(y);
       ctx.fillStyle = '#000'; ctx.fillRect(px - r - 1, py - r - 1, 2 * r + 3, 2 * r + 3);
       ctx.fillStyle = (tick >> 3) & 1 ? '#ffff46' : '#ff9a3c'; ctx.fillRect(px - r, py - r, 2 * r + 1, 2 * r + 1);
+      if (e === Mp.hiPiece) { ctx.strokeStyle = '#fff'; ctx.strokeRect(px - r - 2.5, py - r - 2.5, 2 * r + 6, 2 * r + 6); }
     }
   }
   Mp.draw = function (ctx, vw, vh, oy, tick, font) {
@@ -15775,7 +15790,10 @@ G.Game = (function () {
     for (const ty of [fy, fy - 1, fy - 2]) {
       const g = wallMap.get(ex + ',' + ty);
       if (!g || opened(g) || !W.at(ex, ty)) continue;
-      const msg = g.sw === 'allpieces' ? 'THE THRONE ROOM DOOR OPENS WHEN YOU HAVE ALL 81 PUZZLE PIECES. YOU HAVE ' + G.pieceCount(Gm.st) + ' SO FAR' : g.hint ? g.hint : g.sw === 'pieces' ? 'THIS DOOR OPENS WHEN THE FIRST PICTURE IS FINISHED. FIND ALL 9 OF ITS PUZZLE PIECES'
+      const gave = g.sw === 'allpieces' && !G.hasPower('piecemap');
+      if (gave) { Gm.st.pw = Gm.st.pw || {}; Gm.st.pw.piecemap = 1; sfx('piece'); FX.burst(H.cx(), H.feet() - 16, 20, [7, 1, 8], 2.0, 40); }
+      const msg = gave ? 'THE DOOR NEEDS ALL 81 PUZZLE PIECES. YOU HAVE ' + G.pieceCount(Gm.st) + '. THE PIECE MAP SHOWS THE REST. OPEN THE MAP AND PRESS A PIECE TO GO TO THE NEAREST LAMP'
+        : g.sw === 'allpieces' ? 'THE THRONE ROOM DOOR OPENS WHEN YOU HAVE ALL 81 PUZZLE PIECES. YOU HAVE ' + G.pieceCount(Gm.st) + ' SO FAR. OPEN THE MAP AND PRESS A MISSING PIECE' : g.hint ? g.hint : g.sw === 'pieces' ? 'THIS DOOR OPENS WHEN THE FIRST PICTURE IS FINISHED. FIND ALL 9 OF ITS PUZZLE PIECES'
         : (typeof g.sw === 'number' ? 'A SWITCH OPENS THIS WALL. LOOK FOR THE SWITCH NEARBY AND TOUCH IT' : '');
       if (msg) { Gm.toast(msg); wallHintT = 360; }
       return;
@@ -16248,6 +16266,8 @@ G.Game = (function () {
       const k = Mp.hit(t.x0, t.y0);
       if (k >= 0 && k === Mp.sel) { travelTo(Mp.lamps[k]); return; }
       if (k >= 0) { Mp.sel = k; sfx('menu'); return; }
+      const pe = Mp.pieceHit(t.x0, t.y0), pl = pe ? Mp.nearestLamp(pe[1], pe[2]) : -1;
+      if (pl >= 0) { travelTo(Mp.lamps[pl]); return; }
       if (Mp.zoom) Mp.toggle(G.W, 164); else Mp.zoomAt(t.x0, t.y0, G.W, 164, 18);
       sfx('menu'); return;
     }
@@ -16262,6 +16282,7 @@ G.Game = (function () {
       if (IN.take('l')) { Mp.pick(-1); sfx('menu'); }
       if (IN.take('r')) { Mp.pick(1); sfx('menu'); }
       if (IN.take('d')) { Mp.toggle(G.W, 164); sfx('menu'); }
+      if (IN.take('u') && Mp.nextPiece()) sfx('menu');
     }
     if (IN.take('ok')) { if (Mp.sel >= 0) { travelTo(Mp.lamps[Mp.sel]); return; } Mp.toggle(G.W, 164); sfx('menu'); }
   }
