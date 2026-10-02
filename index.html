@@ -54,7 +54,7 @@ const G = window.G = {
   H: 200,        // logical view height (C64 screen height)
   W: 320,        // logical view width (adaptive, set by main.js)
   HUD_H: 22,     // height of the top HUD bar
-  VERSION: '1.49', // shown on the title screen; goes up by 0.01 with every build handed over
+  VERSION: '1.50', // shown on the title screen; goes up by 0.01 with every build handed over
   FPS: 60
 };
 
@@ -431,7 +431,7 @@ G.Input = (function () {
       if (b(1) && !padPrevB) hit.padB = true;                // (the B button on its own: it closes the map)
       bNow = bNow || b(1);
       l = l || L; r = r || R; u = u || U; d = d || D; f = f || F;
-      start = start || b(9); back = back || b(8); mute = mute || b(10);
+      start = start || b(9); back = back || b(8);              // (no pad button mutes: button 10 is the stick click, and it muted the music by accident; N or the menu still can)
       if (L || R || U || D || F) lastDevice = 'pad';
     }
     padPrevBomb = bombNow; padPrevB = bNow;
@@ -16110,6 +16110,7 @@ G.Game = (function () {
     if (G.Audio) G.Audio.sfx('win');
     G.Music.play('title'); musicNow = 'title'; setMode('win');
   };
+  Gm.toTitle = function () { toTitle(); };
   function toTitle() {
     E.clear(); FX.clear(); clearWarp(); pan = null; pans = []; E.noContact = false; toasts = []; toastCur = null; banner = null;
     L.build();
@@ -16128,6 +16129,34 @@ G.Game = (function () {
   const TITLE_Y0 = 120, TITLE_STEP = 14, PAUSE_Y0 = 50, PAUSE_STEP = 11;
   const titleY0 = n => n > 4 ? 118 : TITLE_Y0, titleStepOf = n => n > 4 ? 11 : TITLE_STEP;     // (five rows fit closer together)
   let hasSave = false, travel = [], quitArm = false;
+  // ---- the save as a file: export it to move it to another device or browser, import it there ----
+  let saveMsg = '', saveMsgT = 0;
+  function saveNote(t) { saveMsg = t; saveMsgT = 420; }
+  function exportSave() {
+    const raw = lsGet(SAVE); if (!raw) { saveNote('NO SAVE TO EXPORT'); return; }
+    try {
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([raw], {type: 'application/json'}));
+      a.download = 'thing-on-a-spring-save.json'; document.body.appendChild(a); a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+      saveNote('SAVE FILE DOWNLOADED');
+    } catch (e) { saveNote('COULD NOT MAKE THE FILE'); }
+  }
+  function importSave() {
+    const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.json,application/json'; inp.style.display = 'none';
+    inp.onchange = () => {
+      const f = inp.files && inp.files[0]; inp.remove(); if (!f) return;
+      const rd = new FileReader();
+      rd.onload = () => {
+        let o = null; try { o = JSON.parse(String(rd.result)); } catch (e) {}
+        if (!o || !o.taken || !o.lit || typeof o.pieces !== 'number') { saveNote('THAT IS NOT A THING ON A SPRING SAVE FILE'); return; }
+        if (hasSave && typeof confirm === 'function' && !confirm('Replace your current save with this file (' + Object.keys(o.pk || {}).length + ' puzzle pieces)?')) return;
+        lsSet(SAVE, JSON.stringify(o)); hasSave = !!readSave();
+        saveNote(hasSave ? 'SAVE LOADED: ' + Object.keys(o.pk || {}).length + ' PIECES. PRESS CONTINUE' : 'COULD NOT USE THAT SAVE');
+      };
+      rd.readAsText(f);
+    };
+    document.body.appendChild(inp); inp.click();
+  }
   const anyTap = () => IN.hit.tap && (IN.device === 'mouse' || IN.device === 'touch');
   const ptrTap = () => IN.hit.ptr && (IN.device === 'mouse' || IN.device === 'touch');   // a click or tap on the canvas itself, not an overlay button
   // returns the row activated this frame (keyboard / pad confirm or a mouse / touch tap on a row), else -1
@@ -16146,6 +16175,8 @@ G.Game = (function () {
   function titleItems() {
     const it = [{t: 'NEW GAME', a: 'new'}];
     if (hasSave) it.push({t: 'CONTINUE', a: 'cont'});
+    if (hasSave) it.push({t: 'EXPORT SAVE', a: 'exp'});
+    it.push({t: 'IMPORT SAVE', a: 'imp'});
     if (G.LEVELSELECT) it.push({t: 'LEVEL SELECT', a: 'levels'});
     it.push({t: 'SOUND: ' + (G.Audio.muted ? 'OFF' : 'ON'), a: 'snd'});
     return it;
@@ -16166,6 +16197,8 @@ G.Game = (function () {
     const act = it[a].a;
     if (act === 'new') { sfx('pick'); Gm.newGame(); }
     else if (act === 'cont') { sfx('pick'); Gm.continueGame(); }
+    else if (act === 'exp') { sfx('pick'); exportSave(); }
+    else if (act === 'imp') { sfx('pick'); importSave(); }
     else if (act === 'castle') { sfx('pick'); Gm.tryCastle(); }
     else if (act === 'levels') { sfx('pick'); lvList = levelList(); lvSel = Math.min(lvSel, lvList.length - 1); setMode('levels'); }
     else toggleSound();
@@ -16730,7 +16763,7 @@ G.Game = (function () {
     veil(ctx, 0.55, 0, 172, vw, 28);
     if (hi.length) F.draw(ctx, 'HI-SCORE ' + pad6(hi[0]), cx, 176, 7, {align: 'c'});
     F.draw(ctx, 'VERSION ' + G.VERSION + (G.LEVELSELECT ? ' LEVEL SELECT' : ''), vw - 3, 3, 11, {align: 'r', small: true});
-    F.draw(ctx, hintText(), cx, 188, 12, {align: 'c'});
+    if (saveMsgT > 0) { saveMsgT--; F.draw(ctx, saveMsg, cx, 188, 13, {align: 'c'}); } else F.draw(ctx, hintText(), cx, 188, 12, {align: 'c'});
   }
   function drawPause(ctx) {
     const vw = G.W, cx = vw / 2, lit = L.lamps.filter(l => Gm.st.lit['lamp:' + l.x + ':' + l.y]).length;
