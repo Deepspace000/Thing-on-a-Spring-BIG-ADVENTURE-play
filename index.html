@@ -54,7 +54,7 @@ const G = window.G = {
   H: 200,        // logical view height (C64 screen height)
   W: 320,        // logical view width (adaptive, set by main.js)
   HUD_H: 22,     // height of the top HUD bar
-  VERSION: '1.41', // shown on the title screen; goes up by 0.01 with every build handed over
+  VERSION: '1.42', // shown on the title screen; goes up by 0.01 with every build handed over
   FPS: 60
 };
 
@@ -7251,7 +7251,7 @@ G.World = (function () {
         const v = o.look[(ty - o.y0) * o.w + tx - o.x0];
         if (!v) continue;
         if (w.fg[ty * w.W + wx(tx)] === ZAP_ID && !w.zapShow(tx)) continue;
-        ctx.drawImage(G.FactoryArt.cell(v - 1, o.pals, tick), tx * T - cx, ty * T - cy);
+        ctx.drawImage(G.FactoryArt.cell(v - 1, o.pals, FASTP[w.fg[ty * w.W + wx(tx)]] === 2 && ((v - 1) & 255) < 3 ? 7 - (tick & 7) : tick), tx * T - cx, ty * T - cy);       // (a turned ladder runs its rungs the other way)
         if (w.fg[ty * w.W + wx(tx)] === ZAP_ID && w.zapOn(tx) && (tick & 2)) { ctx.fillStyle = G.PAL[(tick & 4) ? 1 : 14]; ctx.fillRect(tx * T - cx + ((tick * 3 + ty) & 5), ty * T - cy + ((tick + ty * 5) & 7), 2, 1); }
       }
     }
@@ -7275,6 +7275,7 @@ G.World = (function () {
         if (RAIL[id]) { const rx = tx * T - cx + (RAIL[id] === 1 ? 0 : 6); ctx.fillStyle = G.PAL[8]; ctx.fillRect(rx, py, 2, 8); ctx.fillStyle = G.PAL[9]; ctx.fillRect(rx + (RAIL[id] === 1 ? 1 : 0), py, 1, 8); }
       }
     }
+    if (G.Ents && G.Ents.escMarks) G.Ents.escMarks(ctx, cx, cy, vw, vh, tick);       // (the arrowheads on the switchable ladders, ents_t.js)
     // things drawn in front of the tiles, such as the reef in the water (so the water does not dull its colours)
     if (w.props.length && G.Props) {
       const px0 = cx - 8, px1 = cx + vw + 8, py0 = cy - 8, py1 = cy + vh + 8;
@@ -10625,7 +10626,8 @@ G.Ents = (function () {
 // ESCALATOR SWITCHES: a pad at the bottom and the top of every rising ladder (the original's escalator), with an
 // arrow on it showing which way the ladder runs. Jump on a pad and the ladder turns round: its rungs run down and it
 // carries Thing down (the falling ladder tiles in art_tile.js), with no landing at the top; jump on one again and it
-// runs up. level_escal.js puts the pads by every ladder.
+// runs up. level_escal.js puts the pads by every ladder. The ladder shows which way it goes: its rungs run that way (the
+// original room art too, world.js), and green rising or red falling arrowheads scroll along it (escMarks, below).
 (function () {
   const E = G.Ents, H = G.Hero, W = G.World, FX = G.FX, T = G.T_, D = G.Tiles.D, P = G.PAL;
   const GM = () => G.Game || {};
@@ -10635,11 +10637,48 @@ G.Ents = (function () {
     const goUp = !up(e);
     for (let y = e.top; y <= e.bot; y++) for (let c = 0; c < 3; c++)
       W.set(e.lx + c, y, goUp ? (y === e.top ? T.RTOP_L + c : T.RISE_L + c) : T.FALL_L + c);
+    for (const o of E.list) if (o.type === 'escswitch' && o.lx === e.lx && o.top === e.top) o.wave = 0;     // (starts the sweep along the ladder)
     return goUp;
   }
+  // ---- the direction marks, drawn by the world after its tiles ----
+  // arrowheads in the gaps between the rungs of every switchable ladder, running the way it carries Thing (the rungs run that way too):
+  // green and pointing up while it rises, red and pointing down once turned. When it turns a bright band sweeps along it the new way.
+  const CH = [[3, 2], [2, 4], [1, 2, 5, 2], [0, 2, 6, 2]];                    // the rising arrowhead, row by row: x, width (and x, width) in px
+  const SEEN = new Set(), WAVE = 24;
+  function chevron(ctx, x, y, goUp, col) {
+    for (let pass = 0; pass < 2; pass++) {
+      ctx.fillStyle = P[pass ? col : 0];
+      for (let r = 0; r < 4; r++) {
+        const row = CH[goUp ? r : 3 - r];
+        for (let k = 0; k < row.length; k += 2) ctx.fillRect(x + row[k], y + r + (pass ? 0 : 1), row[k + 1], 1);
+      }
+    }
+  }
+  E.escMarks = function (ctx, cx, cy, vw, vh, tick) {
+    SEEN.clear();
+    for (const e of E.list) {
+      if (e.type !== 'escswitch') continue;
+      const key = e.lx * 4096 + e.top; if (SEEN.has(key)) continue; SEEN.add(key);
+      const xl = e.lx * 8 - cx, ya = (e.top + 1) * 8, yb = (e.bot + 1) * 8;               // (the middle column, below the landing row)
+      if (xl + 24 < 0 || xl > vw || yb - cy < 0 || ya - 8 - cy > vh) continue;
+      const goUp = up(e), col = goUp ? 13 : 10;
+      ctx.save(); ctx.beginPath(); ctx.rect(xl + 8, ya - cy, 8, yb - ya); ctx.clip();
+      const base = goUp ? -tick : tick + 1;                                                 // (a rung's gap scrolls one px a tick, like the rungs)
+      const lo = Math.max(ya, cy), hi = Math.min(yb, cy + vh);
+      for (let Y = base + 16 * Math.ceil((lo - 4 - base) / 16); Y < hi; Y += 16) chevron(ctx, xl + 8, Y - cy, goUp, col);
+      ctx.restore();
+      if (e.wave < WAVE) {
+        const f = e.wave / WAVE, len = yb - ya + 16, yw = Math.round(goUp ? yb + 4 - f * len : ya - 12 + f * len);
+        ctx.save(); ctx.beginPath(); ctx.rect(xl, ya - 8 - cy, 24, yb - ya + 8); ctx.clip();
+        ctx.fillStyle = P[col]; ctx.fillRect(xl, yw - cy - 1, 24, 5);
+        ctx.fillStyle = P[1]; ctx.fillRect(xl, yw - cy, 24, 3);
+        ctx.restore();
+      }
+    }
+  };
   E.def('escswitch', {w: 16, h: 8, layer: 0,
-    init(e) { e.x += e.ox || 0; e.cd = 0; e.press = 0; },
-    upd(e) { if (e.cd > 0) e.cd--; if (e.press > 0) e.press--; },
+    init(e) { e.x += e.ox || 0; e.cd = 0; e.press = 0; e.wave = WAVE; },
+    upd(e) { if (e.cd > 0) e.cd--; if (e.press > 0) e.press--; if (e.wave < WAVE) e.wave++; },
     touch(e) {
       // only when Thing comes down on it from a jump or a fall, not when he walks over it
       if (e.cd > 0 || !(H.vy > 0.4 || H.fallV > 1)) return;
