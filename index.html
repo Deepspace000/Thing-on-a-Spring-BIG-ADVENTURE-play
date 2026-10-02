@@ -54,7 +54,7 @@ const G = window.G = {
   H: 200,        // logical view height (C64 screen height)
   W: 320,        // logical view width (adaptive, set by main.js)
   HUD_H: 22,     // height of the top HUD bar
-  VERSION: '1.46', // shown on the title screen; goes up by 0.01 with every build handed over
+  VERSION: '1.47', // shown on the title screen; goes up by 0.01 with every build handed over
   FPS: 60
 };
 
@@ -1516,9 +1516,9 @@ G.EntArt = (function () {
     for (let x = 10; x <= 21; x += 2) g.set(x, 17, 1);
     if (!hurt) for (let x = 11; x <= 21; x += 2) g.set(x, 19, 1);
     tri(g, 8, 20, 9, 14, 12, 20, 1); tri(g, 24, 20, 23, 14, 20, 20, 1);
-    // drawn 32 x 40, shown one and a half times that size: 48 x 60
-    const big = new Gr(48, 60);
-    for (let y = 0; y < 60; y++) for (let x = 0; x < 48; x++) big.set(x, y, g.get(Math.floor(x / 1.5), Math.floor(y / 1.5)));
+    // drawn 32 x 40, shown twice that size: 64 x 80
+    const big = new Gr(64, 80);
+    for (let y = 0; y < 80; y++) for (let x = 0; x < 64; x++) big.set(x, y, g.get(x >> 1, y >> 1));
     return big;
   });
 
@@ -8764,7 +8764,7 @@ G.Ents = (function () {
   const GM = () => G.Game || {};
   const ALL_SW = 31;
 
-  E.def('goblin', {w: 46, h: 48, reach: 18, dmg: 25, stomp: true, hp: 3, art: 'goblinking',
+  E.def('goblin', {w: 60, h: 64, reach: 34, dmg: 25, stomp: true, hp: 3, art: 'goblinking',
     init(e) {
       e.dir = -1; e.state = 'walk'; e.at = 0; e.n = 0; e.stun = 0; e.shield = true; e.ph = 0; e.fr = 0;
       e.r0 = e.r0 === undefined ? e.x - 160 : e.r0 * 8; e.r1 = e.r1 === undefined ? e.x + 160 : e.r1 * 8 + 8; e.always = false;
@@ -8788,7 +8788,7 @@ G.Ents = (function () {
       } else if (e.state === 'charge') {
         e.at++; e.dir = dx < 0 ? -1 : 1;
         if (e.at < 34) E.body(e, 0);
-        else { if (E.body(e, e.dir * 2.1 * rage)) { e.at = 60; FX.burst(e.x + e.dir * 30, e.y - 14, 8, [11, 12, 15], 1.4, 20); E.sfx('drip'); } }
+        else { if (E.body(e, e.dir * 2.1 * rage)) { e.at = 60; FX.burst(e.x + e.dir * 40, e.y - 14, 8, [11, 12, 15], 1.4, 20); E.sfx('drip'); } }
         if (e.at > 74) { e.state = 'walk'; e.at = 0; }
       } else if (e.state === 'leap') {
         e.at++;
@@ -8800,12 +8800,12 @@ G.Ents = (function () {
     },
     onStomp(e) {
       if (e.shield) {
-        FX.text(e.x, e.y - 74, 'SHIELDED!', 3); E.sfx('zap');
+        FX.text(e.x, e.y - 96, 'SHIELDED!', 3); E.sfx('zap');
         if (GM().toast) GM().toast('THE GOBLIN KING IS SHIELDED. THROW ALL 5 SWITCHES TO BREAK HIS SHIELD');
         return;
       }
-      e.hp--; e.stun = 80; E.sfx('boss'); FX.burst(e.x, e.y - 32, 14, [8, 7, 1], 1.8, 30);
-      if (GM().addScore) GM().addScore(e.hp > 0 ? 200 : 1000, e.x, e.y - 74);
+      e.hp--; e.stun = 80; E.sfx('boss'); FX.burst(e.x, e.y - 42, 14, [8, 7, 1], 1.8, 30);
+      if (GM().addScore) GM().addScore(e.hp > 0 ? 200 : 1000, e.x, e.y - 96);
       if (e.hp <= 0) { e.state = 'dying'; e.dt = 0; e.stun = 0; if (GM().st) GM().st.kingBeaten = 1; }
       else { e.state = 'walk'; e.at = 0; }
     },
@@ -8814,12 +8814,22 @@ G.Ents = (function () {
       const jit = e.state === 'charge' && e.at < 34 ? (e.t & 1) * 2 - 1 : 0;
       if (e.state === 'dying' && (e.t >> 1 & 1)) return;
       A.draw(ctx, 'goblinking', fr, e.dir, x + jit, y);
+      if (fr !== 2) {
+        // glowing eyes: a red glow round each that flickers, a hot yellow core that flares now and then
+        const fl = ((e.t * 7 + (e.t >> 2) * 13) % 11), on = fl > 1, hot = fl > 8;
+        for (const gx of [11, 20]) {
+          const ex = Math.round(x + jit + (e.dir < 0 ? -1 : 1) * ((2 * gx + 1) + 2 - 33)) - 3, ey = Math.round(y - 82 + 2 * 11 + 2);
+          if (!on) continue;
+          ctx.fillStyle = G.PAL[10]; ctx.fillRect(ex - 1, ey - 1, 8, 1); ctx.fillRect(ex - 1, ey + 4, 8, 1); ctx.fillRect(ex - 2, ey, 1, 4); ctx.fillRect(ex + 7, ey, 1, 4);
+          ctx.fillStyle = G.PAL[hot ? 7 : 2]; ctx.fillRect(ex, ey, 6, 4); ctx.fillStyle = G.PAL[hot ? 1 : 7]; ctx.fillRect(ex + 2, ey + 1, 2, 2);
+        }
+      }
       if (e.shield) {
-        for (let i = 0; i < 36; i++) {
+        for (let i = 0; i < 48; i++) {
           if (((i + (e.t >> 2)) & 1)) continue;
-          const a = i / 36 * 6.2832;
+          const a = i / 48 * 6.2832;
           ctx.fillStyle = G.PAL[(i + (e.t >> 3)) & 2 ? 3 : 14];
-          ctx.fillRect(Math.round(x + cos(a) * 44) - 1, Math.round(y - 32 + sin(a) * 40), 2, 2);
+          ctx.fillRect(Math.round(x + cos(a) * 58) - 1, Math.round(y - 42 + sin(a) * 52), 2, 2);
         }
       }
     }});
