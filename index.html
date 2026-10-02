@@ -52,7 +52,7 @@ const G = window.G = {
   H: 200,        // logical view height (C64 screen height)
   W: 320,        // logical view width (adaptive, set by main.js)
   HUD_H: 22,     // height of the top HUD bar
-  VERSION: '1.59', // shown on the title screen; goes up by 0.01 with every build handed over
+  VERSION: '1.60', // shown on the title screen; goes up by 0.01 with every build handed over
   FPS: 60
 };
 
@@ -15344,8 +15344,8 @@ G.Level = (function () {
       }
       return null;
     };
-    // the Cellar and the Garden get theirs on the highest ledge Thing can climb to (the top of the long staircase), with two flying
-    // creatures patrolling round it
+    // the Cellar and the Garden get theirs on the highest ledge Thing can climb to (the top of the long staircase), with a flying
+    // creature patrolling round it
     const MONO = [7, 10, 3, 4, 13, 1, 15, 14], EA = G.EntArt;
     const mono = (type, i, x) => { const T0 = G.Ents && G.Ents.T && G.Ents.T[type], base = T0 && T0.art; return base && EA && EA.mono ? EA.mono(base, MONO[(i + x) % MONO.length]) : undefined; };
     const solid = k => k === 1 || k === 2;
@@ -15361,7 +15361,7 @@ G.Level = (function () {
         const p = high(z);
         if (p) {
           L.lamp(p[0], p[1], z.name);
-          const kinds = i === 2 ? ['bat', 'germ'] : ['wasp', 'bird'];
+          const kinds = i === 2 ? ['bat'] : ['wasp'];
           kinds.forEach((t, k) => { const x = p[0] + (k ? 9 : -7), y = p[1] - 4 - k * 2, a = mono(t, i, x); L.ent(t, x, y, Object.assign({sp: 0.55 + k * 0.1, r: 24, mode: 'h', dir: k ? -1 : 1}, a ? {art: a} : {})); });
         }
         return;
