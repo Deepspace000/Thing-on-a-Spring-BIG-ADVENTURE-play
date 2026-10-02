@@ -52,7 +52,7 @@ const G = window.G = {
   H: 200,        // logical view height (C64 screen height)
   W: 320,        // logical view width (adaptive, set by main.js)
   HUD_H: 22,     // height of the top HUD bar
-  VERSION: '1.55', // shown on the title screen; goes up by 0.01 with every build handed over
+  VERSION: '1.56', // shown on the title screen; goes up by 0.01 with every build handed over
   FPS: 60
 };
 
@@ -16328,7 +16328,7 @@ G.Game = (function () {
   let hasSave = false, travel = [], quitArm = false;
   // ---- the minimap (V, or MINIMAP in the pause menu): 112 x 72 tiles round Thing in 56 x 36 px, each pixel 2 x 2 tiles ----
   const MW = 56, MH = 36;
-  let miniOn = lsGet('thingbig.mini') !== '0', miniCv = null, miniT = -99, miniX = 0, miniY = 0;
+  let miniOn = lsGet('thingbig.mini') !== '0', miniDots = null, miniCv = null, miniT = -99, miniX = 0, miniY = 0;
   function toggleMini() { miniOn = !miniOn; lsSet('thingbig.mini', miniOn ? '1' : '0'); }
   function drawMini(ctx) {
     if (!miniOn || camLock) return;
@@ -16359,6 +16359,15 @@ G.Game = (function () {
     // the part of the world on the screen
     const [vx, vy] = at(cam.x / 8, cam.y / 8);
     ctx.strokeStyle = PAL[1]; ctx.lineWidth = 1; ctx.strokeRect(Math.round(vx) + 0.5, Math.round(vy) + 0.5, Math.round(G.W / 16), Math.round(VH / 16));
+    // doors (orange), lifts (light blue) and tubes and warp doors (purple)
+    if (!miniDots || miniDots.n !== (L.ents || []).length) {
+      miniDots = {n: (L.ents || []).length, a: []};
+      for (const e of L.ents || []) { const c = e[0] === 'doorway' ? 8 : (e[0] === 'lift' ? 14 : (e[0] === 'warp' ? 4 : -1)); if (c >= 0) miniDots.a.push([e[1], e[2], c]); }
+    }
+    for (const d of miniDots.a) {
+      const [x, y] = at(d[0], d[1]);
+      if (x >= bx && x < bx + MW && y >= by && y < by + MH) { ctx.fillStyle = PAL[d[2]]; ctx.fillRect(Math.round(x), Math.round(y), 1, 1); }
+    }
     // save lamps, and (with the Piece Map) the pieces not found yet
     for (const l of L.lamps || []) { const [x, y] = at(l.x, l.y); if (x >= bx && x < bx + MW && y >= by && y < by + MH) { ctx.fillStyle = PAL[7]; ctx.fillRect(Math.round(x), Math.round(y), 1, 1); } }
     if (G.hasPower && G.hasPower('piecemap') && ((tick >> 3) & 1)) {
