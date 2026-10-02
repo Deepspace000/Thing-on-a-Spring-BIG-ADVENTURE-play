@@ -52,7 +52,7 @@ const G = window.G = {
   H: 200,        // logical view height (C64 screen height)
   W: 320,        // logical view width (adaptive, set by main.js)
   HUD_H: 22,     // height of the top HUD bar
-  VERSION: '1.56', // shown on the title screen; goes up by 0.01 with every build handed over
+  VERSION: '1.57', // shown on the title screen; goes up by 0.01 with every build handed over
   FPS: 60
 };
 
@@ -569,7 +569,37 @@ G.HeroArt = (function () {
     for (let k = 0; k < 8; k++) add('dead', spin({L: 7, sway: 0, look: 0, expr: 'x'}, k));
   }
   build();
+  // Thing seen from behind (going up an escalator): the standing picture with its face wiped out. In the head, the white of the
+  // eyes and anything black inside the outline (pupils, mouth) become the head's own colour; on the body the white stripe
+  // down the front becomes black. Made from whatever the standing picture is when asked (the original sheets replace it).
+  const BK = {src: null, R: null, L: null};
+  function makeBack(src) {
+    const w = src.width, h = src.height, c = G.mkCanvas(w, h), x = c.getContext('2d');
+    x.drawImage(src, 0, 0);
+    const im = x.getImageData(0, 0, w, h), d = im.data, A = (px, py) => (px < 0 || py < 0 || px >= w || py >= h) ? 0 : d[(py * w + px) * 4 + 3];
+    const col = (px, py) => { const i = (py * w + px) * 4; return d[i] << 16 | d[i + 1] << 8 | d[i + 2]; };
+    const cnt = new Map();
+    for (let py = 0; py < h * 0.45; py++) for (let px = 0; px < w; px++) if (A(px, py)) { const k = col(px, py); if (k !== 0 && k !== 0xffffff) cnt.set(k, (cnt.get(k) || 0) + 1); }
+    let green = 0, best = 0; cnt.forEach((n, k) => { if (n > best) { best = n; green = k; } });
+    const put = (px, py, k) => { const i = (py * w + px) * 4; d[i] = k >> 16 & 255; d[i + 1] = k >> 8 & 255; d[i + 2] = k & 255; };
+    let headEnd = 0; for (let py = 0; py < h * 0.6; py++) for (let px = 0; px < w; px++) if (A(px, py) && col(px, py) === green) headEnd = py;      // (the last row that has head colour)
+    const orig = new Uint8ClampedArray(d);
+    const was = (px, py) => { const i = (py * w + px) * 4; return orig[i + 3] ? (orig[i] << 16 | orig[i + 1] << 8 | orig[i + 2]) : -1; };
+    for (let py = 0; py < h; py++) for (let px = 0; px < w; px++) {
+      const k = was(px, py); if (k < 0) continue;
+      const inner = was(px - 1, py) >= 0 && was(px + 1, py) >= 0 && was(px, py - 1) >= 0 && was(px, py + 1) >= 0;
+      if (py <= headEnd) { if (green && (k === 0xffffff || (k === 0 && inner))) put(px, py, green); }
+      else if (k === 0xffffff && py < h * 0.82 && px > w * 0.3 && px < w * 0.7) put(px, py, 0);
+    }
+    x.putImageData(im, 0, 0);
+    return c;
+  }
   function frame(name, i, dir) {
+    if (name === 'back') {
+      const src = F.idle[0].R;
+      if (BK.src !== src) { BK.src = src; BK.R = makeBack(src); BK.L = G.flipCanvas(BK.R); }
+      return dir < 0 ? BK.L : BK.R;
+    }
     const a = F[name], f = a[((i % a.length) + a.length) % a.length];
     return dir < 0 ? f.L : f.R;
   }
@@ -6972,8 +7002,11 @@ G.Hubbard = (function () {
         const src = ['const SidSynth = (' + G.SidModule.toString() + ')();',
           'class P extends AudioWorkletProcessor { constructor() { super(); this.s = new SidSynth(sampleRate); this.port.onmessage = e => this.s.onMessage(e.data); }',
           '  process(i, o) { this.s.render(o[0][0], o[0][1]); return true; } }', 'registerProcessor("hubbard-sid", P);'].join(String.fromCharCode(10));
+        // (a page opened from a file cannot load a blob: module, so then the same source goes in as a data: address; without
+        // the worklet the synth runs on the main thread and the music stutters and drags whenever the game is busy)
         const url = URL.createObjectURL(new Blob([src], {type: 'application/javascript'}));
-        await c.audioWorklet.addModule(url);
+        try { await c.audioWorklet.addModule(url); }
+        catch (e1) { await c.audioWorklet.addModule('data:application/javascript;base64,' + btoa(unescape(encodeURIComponent(src)))); }
         const n = new AudioWorkletNode(c, 'hubbard-sid', {outputChannelCount: [2]});
         return {n: n, send: m => n.port.postMessage(m)};
       } catch (e) { console.warn('SID worklet not available, using the main thread', e); }
@@ -6986,7 +7019,7 @@ G.Hubbard = (function () {
     const c = A && A.ctx;
     if (!HB.on || !c || !send) return;
     if (t < c.currentTime - 0.3) t = c.currentTime + 0.03;
-    while (t < c.currentTime + 0.12) {
+    while (t < c.currentTime + 0.25) {                        // (a quarter of a second ahead: a busy frame does not starve the sound)
       writes.length = 0; cpu.call(0xc012);
       send({type: 'frame', t: t, writes: writes.slice()});
       t += 0.02;
@@ -7939,7 +7972,10 @@ G.Hero = (function () {
       if (k < 0) { ctx.drawImage(HA.frame('idle', 0, f), x - 14, feet - (HA.oy || 21)); return; }
       ctx.drawImage(HA.frame(HA.F.ride ? 'ride' : 'hurt', k, f), x - 14, feet - (HA.oy || 21) + 8); return;
     }
-    if ((H.rising || H.sinking) && !H.ground) { ctx.drawImage(HA.frame('climb', Math.floor(H.cph) & 1, f), x - 14, feet - (HA.oy || 21)); return; }
+    if ((H.rising || H.sinking) && !H.ground) {
+      // on an escalator he does not wriggle: going up he turns his back to us (a little step-bob), going down he faces us
+      ctx.drawImage(H.rising ? HA.frame('back', 0, f) : HA.frame('idle', 0, f), x - 14, feet - (HA.oy || 21) - (H.rising && (Math.floor(H.cph) & 1) ? 1 : 0)); return;
+    }
     if (H.ducking && H.charge > 4) {
       const h = H.apexH(), full = H.charge >= H.CH_MAX, top = feet - h, sway = full ? (H.tick >> 2 & 1) : 0;
       ctx.fillStyle = full ? '#ffffff' : '#eeee77';
