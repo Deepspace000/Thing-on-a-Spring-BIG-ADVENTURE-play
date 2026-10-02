@@ -54,7 +54,7 @@ const G = window.G = {
   H: 200,        // logical view height (C64 screen height)
   W: 320,        // logical view width (adaptive, set by main.js)
   HUD_H: 22,     // height of the top HUD bar
-  VERSION: '1.47', // shown on the title screen; goes up by 0.01 with every build handed over
+  VERSION: '1.48', // shown on the title screen; goes up by 0.01 with every build handed over
   FPS: 60
 };
 
@@ -7667,7 +7667,7 @@ G.Hero = (function () {
       H.coyote++;
       H.jetOn = !lock && !H.inWater && H.env === 'space' && !!(G.hasPower && G.hasPower('suit'));
       H.gfly = !lock && !H.inWater && !H.jetOn && H.wings > 0 && !!(G.hasPower && G.hasPower('goldwings'));
-      H.swim = !lock && H.inWater && !!(G.hasPower && G.hasPower('diver'));
+      H.swim = !lock && H.inWater;                                 // (anyone can swim; only the helmet gives air)
       if (H.jbuf > 0 && H.coyote < 6 && !lock && H.mode !== 'spin' && H.mode !== 'leap' && H.mode !== 'hop') H.jump(dir);
       else if (H.jetOn) {
         // the space suit's jetpack: it pushes Thing the way the arrows point; in space he keeps drifting, and the weak
@@ -7871,18 +7871,19 @@ G.Hero = (function () {
     if (H.ground && H.gcar) { b.y = H.gcar.y - b.h; P.moveX(b, H.gcar.dx || 0); }
 
     const liq = P.liquidAt(b), wasW = H.inWater, diver = G.hasPower && G.hasPower('diver');
-    // no going into water without the glass diving helmet: Thing is thrown back out, towards the last safe ground
-    if (liq === T_.WATER && !diver && !H.dead && H.mode !== 'ride') {
-      if (!wasW) { H.puff(H.cx(), H.feet() - 4, 6, 1.0); H.sfx('splash'); H.bounce(3.8); } else H.vy = Math.min(H.vy, -3.8);
-      H.vx = (H.safe && H.safe.x < H.cx() ? -1 : 1) * 1.8; H.airMax = 1.8;
-      if (tick >= (H.waterHint || 0) && G.Game && G.Game.toast) { G.Game.toast('THING NEEDS THE GLASS DIVING HELMET TO GO INTO WATER'); H.waterHint = tick + 360; }
-    }
     H.inWater = liq === T_.WATER || liq === T_.CHOC || liq === T_.MUD;
     if (H.inWater && !wasW) { H.puff(H.cx(), H.feet() - 4, 5, 0.9); H.sfx('splash'); }
     H.env = G.Level && G.Level.envAt ? G.Level.envAt(H.cx() >> 3, (H.feet() - 6) >> 3) : '';
     if (H.swimCd > 0) H.swimCd--;
     const helm = G.hasPower && G.hasPower('suit');
-    if (H.inWater && !diver) { if (H.env === 'sea' ? tick % 14 === 0 : (tick % 90 === 0 && H.oil > 4)) H.oil -= 1; }
+    // under water without the glass diving helmet Thing holds his breath for 10 seconds, then loses oil (the helmet: all the air he needs)
+    const drowning = H.inWater && !diver && !H.dead;
+    if (drowning) {
+      if (H.breath === undefined) H.breath = 600;
+      if (!wasW && G.Game && G.Game.toast && !(H.breathHint > tick)) { G.Game.toast('NO HELMET: THING CAN HOLD HIS BREATH FOR 10 SECONDS UNDER WATER. THE GLASS DIVING HELMET GIVES ALL THE AIR HE NEEDS'); H.breathHint = tick + 1800; }
+      if (H.breath > 0) H.breath--; else if (tick % 20 === 0) { H.oil -= 1; H.sfx('drip'); }
+      if (H.oil <= 0) H.hazard(100);
+    } else H.breath = Math.min(600, (H.breath === undefined ? 600 : H.breath) + 6);
     if (H.env === 'space' && !helm && tick % 9 === 0) H.oil -= 1;
     if (H.oil <= 0 && !H.dead && (H.env === 'sea' || H.env === 'space')) H.hazard(100);
     if (liq === T_.LAVA) H.hazard(30);
@@ -7993,6 +7994,10 @@ G.Hero = (function () {
       G.Buddy.track(cap[0]);
     } else drawBody(ctx, camX, camY);
     if (H.inWater && G.hasPower && G.hasPower('diver')) ctx.drawImage(dome(), x - 10, feet - (H.ducking ? 22 : 30));
+    if (H.inWater && !H.dead && !(G.hasPower && G.hasPower('diver')) && H.breath !== undefined && G.Font) {
+      const sec = Math.ceil(H.breath / 60), low = H.breath < 180;
+      G.Font.draw(ctx, sec > 0 ? String(sec) : '!', Math.round(x), feet - 40, low && ((H.tick >> 3) & 1) ? 2 : 1, {align: 'c', shadow: 0});
+    }
     else if (suited) ctx.drawImage(spaceDome(), x - 10, feet - (H.ducking ? 22 : 30));
     if (H.jetT > 0) H.jetT--;
     if (sunk) ctx.restore();
