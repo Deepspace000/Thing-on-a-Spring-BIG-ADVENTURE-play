@@ -54,7 +54,7 @@ const G = window.G = {
   H: 200,        // logical view height (C64 screen height)
   W: 320,        // logical view width (adaptive, set by main.js)
   HUD_H: 22,     // height of the top HUD bar
-  VERSION: '1.43', // shown on the title screen; goes up by 0.01 with every build handed over
+  VERSION: '1.44', // shown on the title screen; goes up by 0.01 with every build handed over
   FPS: 60
 };
 
@@ -14962,17 +14962,18 @@ G.Level = (function () {
     ['THE LIBRARY', 3, ["I DON'T", "THINK YOU'RE", 'TURNING BACK', 'ARE YOU...'], true],
     ['THE TREASURY', 4, ['PREPARE', 'TO DIIIIEEEE'], true],
     ['THE LAVA FORGE', 5, ["I'M NOT SCARED,", "YOU'RE SCARED"], true]];
-  // THE PIECE MAP: in the castle's first room, the Gatehouse, a few steps from its lamp (so every missing piece shows on the map from there)
+  // THE PIECE MAP: at the entrance of the Throne Room, between its two signs, just before the Goblin King: only someone who got through the whole castle reaches it
   L.bigParts.push(function pieceMap() {
-    const Wd = G.World, lamp = (L.lamps || []).find(l => l.label === 'THE GATEHOUSE'), room = (L.zones || []).find(z => z.name === 'THE GATEHOUSE');
-    if (!lamp || !room) return;
-    const toward = (room.x0 + room.x1) / 2 >= lamp.x ? 1 : -1, K = (x, y) => Wd.KIND[Wd.at(x, y)];
-    for (let d = 3; d <= 8; d++) for (const s of [toward, -toward]) {
-      const x = lamp.x + s * d, fy = lamp.y + 1;
+    const Wd = G.World, lamp = (L.lamps || []).find(l => l.label === 'THE THRONE ROOM');
+    if (!lamp) return;
+    const K = (x, y) => Wd.KIND[Wd.at(x, y)];
+    for (const d of [13, 12, 14, 11, 15, 10, 16]) {
+      const x = lamp.x + d, fy = lamp.y + 1;
       if (K(x, fy) === 1 && K(x, fy - 1) === 0 && K(x, fy - 2) === 0) { L.ent('power', x, lamp.y, {kind: 'piecemap'}); return; }
     }
-    L.ent('power', lamp.x + toward * 3, lamp.y, {kind: 'piecemap'});
+    L.ent('power', lamp.x + 13, lamp.y, {kind: 'piecemap'});
   });
+
   L.bigParts.push(function warnings() {
     const Wd = G.World, K = (x, y) => Wd.KIND[Wd.at(x, y)];
     const flat = (x, fy) => [-1, 0, 1].every(d => { const k = K(x + d, fy); return k === 1 || k === 2; }) && [1, 2, 3].every(j => K(x, fy - j) === 0);
