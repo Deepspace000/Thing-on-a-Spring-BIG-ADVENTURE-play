@@ -54,7 +54,7 @@ const G = window.G = {
   H: 200,        // logical view height (C64 screen height)
   W: 320,        // logical view width (adaptive, set by main.js)
   HUD_H: 22,     // height of the top HUD bar
-  VERSION: '1.51', // shown on the title screen; goes up by 0.01 with every build handed over
+  VERSION: '1.52', // shown on the title screen; goes up by 0.01 with every build handed over
   FPS: 60
 };
 
@@ -726,6 +726,8 @@ G.Tiles = (function () {
   for (let i = 0; i < 4; i++) D[140 + i] = {n: 'dirtsnow', k: 1, p: 'speck', a: 9, b: 8, c: 11, nb: 5, nc: 2, top: 'snowpatch', sp: i, hl: 8, dk: 0};
   // THE MOON BASE (level_sky.js): the floor of its rooms, a dark grey grating with a light grey top edge
   D[145] = {n: 'grate', k: 1, p: 'grate', a: 11, b: 0, c: 15};
+  // THE CLOUD KINGDOM (level_cloud.js): a solid cloud
+  D[150] = {n: 'cloudsolid', k: 1, p: 'cloud', a: 1, b: 15, c: 3, cap: 6};
   // THE FACTORY (level_factory2.js): the brick end wall where its steel meets the jungle's earth
   D[144] = {n: 'endbrick', k: 1, p: 'endbrick', a: 8, b: 9, c: 0};
   G.T_ = {AIR: 0, DIRT: 1, STONE: 2, CAVE: 3, DEEP: 4, CRYSTAL: 5, METAL: 6, MTN: 7, SNOWROCK: 8, ICE: 9, CLOUD: 10, STORM: 11,
@@ -733,7 +735,7 @@ G.Tiles = (function () {
           PIPE: 29, RIB: 30, PLATE: 31, SINK: 32, FLANGE: 33,
           FSOLID: 40, FPLATE: 41, SL_UP: 42, SL_DN: 43, SL_H: 44, SL_V: 45, RISE_L: 46, RISE: 47, RISE_R: 48, CONV: 49, DOOR: 50, RTOP_L: 56, LEAFP: 59,
           SAND: 60, SANDSTONE: 61, QUICKSAND: 62, CANDY: 63, CANE: 64, JELLY: 65, CHOC: 66, MUD: 67, JUNGLE: 68, FLOSS: 69, WAFER: 70, SNOWSINK: 71, MOSSINK: 72, FDISS: 77, BRANCH: 78, GOLDGATE: 79, DISSBLK: 80, BRICK_G: 81, BRICK_C: 82, BRICK_P: 83, BRICK_B: 84, BRICK_W: 85, GIRDER: 86, DEADPIT: 87, DOTROPE: 88, LATTICE_G: 89, STUMP: 90, PINKSTONE: 91, BGIRDER: 92, WALL: 93, CHEESE: 94, SPRINKLE: 95, MINT: 96, LEMON: 97, CANDYBRICK: 98, CANDYBRICK2: 99, MOONROCK: 100, MOONCHEESE: 101, MSLIDE: 102, LOCKDOOR: 106, FAKEWALL: 107, CSTONE: 108, CSTONE2: 109, CARPET: 110, ZAP: 111, ZAPBOX: 112, CHEESEP: 113, ROPEB: 114, BLACKSOLID: 115, BARKB: 116, BSPIKE: 117, BSPIKET: 118, FALL_L: 119, BEDROCK: 131, PYRSHADE: 132, CASING: 133, CAPSTONE: 134, BASALT: 135, BASALTHOT: 136, HOTROCK: 137};
-  Object.assign(G.T_, {DIRTSNOW: 140, DIRTSNOW_R: 141, DIRTSNOW_L: 142, DIRTSNOW_F: 143, ENDBRICK: 144, GRATE: 145});
+  Object.assign(G.T_, {DIRTSNOW: 140, DIRTSNOW_R: 141, DIRTSNOW_L: 142, DIRTSNOW_F: 143, ENDBRICK: 144, GRATE: 145, CLOUDB: 150});
   // the Foothills (level_mtn.js): grassy ledges (a green top with light green blades over brown earth) and the
   // mountain rock of the ground at the foot of the mountain with a grass top
   D[122] = {n: 'grassledge', k: 2, p: 'ledge', t: 5, a: 9, b: 8, c: 0, blade: 13};
@@ -8951,7 +8953,7 @@ G.Ents = (function () {
     init(e) { e.tw = e.tw || 2; e.x = e.tx * 8 + e.tw * 4; e.y = e.ty * 8 + 8; e.top = e.ty * 8; e.hold = 0; },
     upd(e) {
       if (!onTop(e) || E.warpLock) { e.hold = 0; return; }
-      hintOnce('warp', 'HOLD DOWN ON A TUBE TO GO THROUGH IT');
+      hintOnce(e.hint ? 'warp:' + e.hint : 'warp', e.hint || 'HOLD DOWN ON A TUBE TO GO THROUGH IT');
       if (IN.s.d) {
         if (++e.hold >= HOLD) { e.hold = 0; if (GM().warp) GM().warp(e); }
       } else e.hold = 0;
@@ -11296,6 +11298,100 @@ G.Ents = (function () {
         const sy = by + 2 + ((t >> 2) % (h - 3)), sx = bx + w - 4;
         ctx.fillStyle = P[14]; ctx.fillRect(sx + 1, sy, 1, 1); ctx.fillRect(sx, sy + 1, 3, 1); ctx.fillStyle = P[3]; ctx.fillRect(sx + 1, sy + 2, 1, 1);
       }
+    }});
+})();
+</script>
+<script type="text/x-thing-js" data-f="ents_cloud">
+/* ents_cloud.js */
+'use strict';
+// THE CLOUD KINGDOM's creatures and its door (level_cloud.js): puffy cloudlings that patrol (some swoop at Thing), storm
+// clouds that flash a warning and then strike straight down with lightning, and the door set in a cloud.
+(function () {
+  const E = G.Ents, H = G.Hero, A = G.EntArt, Gr = G.Grid, P = G.PAL, abs = Math.abs, sin = Math.sin;
+  // ---- art: a white puff with an angry face; a dark storm cloud with a lightning flash ----
+  A.def('cloudling', 2, f => {
+    const g = new Gr(22, 16);
+    g.ellipse(6, 10, 5, 4, 1); g.ellipse(11, 7, 6.5, 6, 1); g.ellipse(16, 10, 5, 4, 1); g.rect(4, 11, 14, 4, 1);
+    g.rect(3, 13, 16, 2, 15); g.rect(5, 15, 12, 1, 12); g.ellipse(11, 5, 4, 2, 1);
+    g.rect(7, 7, 3, 3, 0); g.rect(13, 7, 3, 3, 0); g.set(8, 8, 1); g.set(14, 8, 1);
+    g.line(5, 4, 10, 7, 0); g.line(17, 4, 12, 7, 0);
+    if (f) { g.rect(8, 12, 7, 2, 0); g.set(9, 12, 1); g.set(11, 12, 1); g.set(13, 12, 1); } else { g.rect(9, 12, 5, 1, 0); g.set(8, 13, 0); g.set(14, 13, 0); }
+    return g;
+  });
+  A.def('stormcloud', 2, f => {
+    const g = new Gr(28, 17);
+    g.ellipse(7, 9, 6, 5, 12); g.ellipse(14, 6, 8, 6.5, 12); g.ellipse(21, 9, 6, 5, 12); g.rect(4, 10, 20, 5, 12);
+    g.rect(3, 13, 22, 3, 11); g.rect(6, 15, 16, 2, 0); g.ellipse(14, 3, 5, 2, 15);
+    g.rect(8, 7, 4, 3, f ? 7 : 0); g.rect(16, 7, 4, 3, f ? 7 : 0); if (!f) { g.set(9, 8, 2); g.set(17, 8, 2); }
+    g.line(6, 4, 12, 7, 0); g.line(22, 4, 16, 7, 0);
+    g.rect(11, 12, 7, 2, 0); g.set(12, 12, 1); g.set(14, 12, 1); g.set(16, 12, 1);
+    return g;
+  });
+  // ---- cloudling: patrols to and fro, bobbing; with swoop it dives at Thing when he is below it, then climbs back ----
+  E.def('cloudling', {w: 20, h: 12, fly: true, dmg: 10, pts: 80, stomp: true, art: 'cloudling', fs: 3, cols: [1, 15, 14],
+    init(e) { e.bx = e.x; e.by = e.y; e.r = e.r || 48; e.dir = e.dir || 1; e.sp = e.sp || 0.6; e.ph = E.rnd() * 6; e.mode = 0; e.cool = 0; },
+    upd(e) {
+      if (e.mode === 0) {
+        e.x += e.dir * e.sp; if (abs(e.x - e.bx) > e.r) e.dir = -e.dir;
+        e.y = e.by + sin(e.t * 0.07 + e.ph) * 3;
+        if (e.cool > 0) e.cool--;
+        else if (e.swoop && !H.dead) { const dx = H.cx() - e.x, dy = H.feet() - 6 - e.y; if (abs(dx) < 46 && dy > 14 && dy < 110) { e.mode = 1; e.n = 0; e.tx = H.cx(); e.ty = H.feet() - 8; E.sfx('drip'); } }
+      } else if (e.mode === 1) {                                           // the dive
+        const dx = e.tx - e.x, dy = e.ty - e.y, d = Math.hypot(dx, dy) || 1;
+        e.x += dx / d * 2.2; e.y += dy / d * 2.2; if (++e.n > 40 || d < 4) { e.mode = 2; e.n = 0; }
+      } else {                                                             // back up to its patrol height
+        e.y += (e.by - e.y) * 0.06 - 0.3; e.x += (e.bx - e.x) * 0.03;
+        if (abs(e.y - e.by) < 3) { e.mode = 0; e.cool = 90; e.bx = e.x; }
+      }
+    }});
+  // ---- storm cloud: sits still, flashes for a moment, then strikes a bolt straight down (e.len px) every e.cyc ticks ----
+  E.def('stormcloud', {w: 26, h: 14, fly: true, dmg: 10, pts: 120, stomp: true, art: 'stormcloud', cols: [12, 11, 7],
+    init(e) { e.by = e.y; e.cyc = e.cyc || 170; e.off = e.off || 0; e.len = e.len || 64; e.warn = false; e.bolt = false; },
+    upd(e) {
+      const p = (e.t + e.off) % e.cyc; e.warn = p >= e.cyc - 52 && p < e.cyc - 16; e.bolt = p >= e.cyc - 16;
+      if (p === e.cyc - 52) E.sfx('drip'); if (p === e.cyc - 16) E.sfx('zap');
+      e.y = e.by + sin(e.t * 0.05 + (e.off || 0)) * 1.5;
+    },
+    zone(e) { return e.bolt ? [e.x - 5, e.y, 10, e.len, 12] : null; },
+    draw(e, ctx, x, y) {
+      const sh = e.warn ? ((e.t >> 1) & 1) * 2 - 1 : 0;
+      A.draw(ctx, 'stormcloud', e.warn && ((e.t >> 2) & 1) ? 1 : 0, 1, x + sh, y);
+      if (e.warn) {                                                        // sparks gather under it
+        ctx.fillStyle = P[(e.t >> 1) & 1 ? 7 : 1];
+        for (let i = 0; i < 3; i++) ctx.fillRect(Math.round(x - 4 + ((e.t * 5 + i * 7) % 9)), Math.round(y + 2 + ((e.t + i * 4) % 6)), 1, 1);
+      }
+      if (e.bolt) {                                                        // the bolt: a jagged line of yellow with a white core
+        let bx = Math.round(x);
+        for (let k = 0; k < e.len; k += 4) {
+          const j = (((e.t >> 1) + k * 3) % 5) - 2;
+          ctx.fillStyle = P[7]; ctx.fillRect(bx - 2, y + k, 5, 4); ctx.fillStyle = P[1]; ctx.fillRect(bx - 1, y + k, 3, 4);
+          bx += j > 0 ? 1 : (j < 0 ? -1 : 0);
+        }
+      }
+    }});
+  // ---- the net under the Cloud Kingdom: whoever falls below it goes back to his last safe cloud (it costs 15 oil unless he is
+  // still flashing from a hit) ----
+  E.def('cloudnet', {w: 8, h: 8, noContact: true, layer: 0,
+    init(e) { e.always = true; },
+    upd(e) {
+      const b = H.b; if (H.dead || b.y < e.ny || b.x < e.nx0 || b.x > e.nx1) return;
+      if (H.inv <= 0) { H.hazard(15); return; }
+      const s = H.safe; b.x = s.x - b.w / 2; b.y = s.y - b.h; H.vx = 0; H.vy = 0;
+      if (G.Game && G.Game.snapCam) G.Game.snapCam();
+    },
+    draw() {}});
+  // ---- the door set in a cloud: a puffy cloud round a small wooden door (the warp under it does the work: hold Down) ----
+  E.def('clouddoor', {w: 16, h: 24, noContact: true, layer: 0,
+    init(e) { e.x = e.tx * 8 + 8; e.y = e.ty * 8; e.always = false; },
+    draw(e, ctx, x, y) {
+      const W = (xx, yy, rx, ry, c) => { ctx.fillStyle = P[c]; for (let j = -ry; j <= ry; j++) { const w = Math.round(rx * Math.sqrt(1 - (j / (ry + 0.5)) ** 2)); ctx.fillRect(Math.round(x + xx - w), Math.round(y + yy + j), 2 * w + 1, 1); } };
+      W(-14, -8, 9, 7, 15); W(14, -8, 9, 7, 15); W(0, -26, 12, 8, 15); W(-8, -20, 9, 8, 15); W(8, -20, 9, 8, 15);      // (grey shading behind)
+      W(-14, -9, 9, 7, 1); W(14, -9, 9, 7, 1); W(0, -27, 12, 8, 1); W(-8, -21, 9, 8, 1); W(8, -21, 9, 8, 1);
+      ctx.fillStyle = P[0]; ctx.fillRect(x - 7, y - 24, 14, 24); ctx.fillRect(x - 6, y - 25, 12, 1);                 // frame
+      ctx.fillStyle = P[9]; ctx.fillRect(x - 6, y - 23, 12, 23); ctx.fillStyle = P[8]; ctx.fillRect(x - 6, y - 23, 3, 23);
+      ctx.fillStyle = P[0]; ctx.fillRect(x - 1, y - 23, 1, 23);                                                       // the seam
+      ctx.fillStyle = P[7]; ctx.fillRect(x + 2, y - 11, 2, 2);                                                        // knob
+      const tw = (e.t >> 3) & 3; ctx.fillStyle = P[1]; ctx.fillRect(x - 5 + tw * 3, y - 32 - (tw & 1), 1, 1);       // a sparkle above
     }});
 })();
 </script>
@@ -14083,6 +14179,83 @@ G.Level = (function () {
     islandLife([[BX + 8, I0 - 57, 7, 3], [BX - 3, I0 - 76, 6, 3], [PX, I0 - 96, 9, 4]], [[PX - 7, PX + 9]]);
   }
   L.bigParts.push(sky, wingGarden, space);
+})();
+</script>
+<script type="text/x-thing-js" data-f="level_cloud">
+/* level_cloud.js */
+'use strict';
+// THE CLOUD KINGDOM: a secret level reached through a door set in a cloud high above the Sky Islands' High Perch. Four screens
+// (40 columns each) of cloud platforms, cloudlings and storm clouds, with a save lamp half way and a vault at the end.
+// It sits in the empty top of the world (ox, oy); falling off a cloud puts Thing back on his last safe cloud and costs a little oil.
+(function () {
+  const L = G.Level, T = G.T_, Wd = G.World;
+  if (!L || !L.bigParts) return;
+  const OX = 1460, OY = 8;
+  function cloudKingdom() {
+    const cl = (x, y, w, id) => L.fill(OX + x, OY + y, w, 1, id === undefined ? T.CLOUD : id);               // a platform row
+    const blk = (x, y, w, h) => L.fill(OX + x, OY + y, w, h, T.CLOUDB);                                      // a solid cloud
+    const on = (type, x, y, o) => L.ent(type, OX + x, OY + y - 1, o);                                          // standing on row y
+    const gem = (x, y, k) => on('gem', x, y, {kind: k || 'c'});
+    // the frame: walls either side, a roof, and an unseen net under everything (ents_cloud.js) that puts Thing back on his last safe cloud
+    blk(0, 0, 160, 1); blk(0, 0, 1, 26); blk(159, 0, 1, 26);
+    L.ent('cloudnet', OX + 80, OY + 12, {nx0: (OX + 1) * 8, nx1: (OX + 159) * 8, ny: (OY + 23) * 8});
+
+    // ---- screen 1 (columns 1-39): the landing, then easy hops over a gap with two cloudlings ----
+    blk(2, 19, 11, 6);                                                                                         // the landing: solid cloud
+    L.lamp(OX + 9, OY + 18, 'THE CLOUD KINGDOM');
+    L.ent('clouddoor', OX + 3, OY + 19, {}); L.ent('warp', OX + 3, OY + 19, {id: 'cin', to: 'cdoor', tw: 2, hint: 'HOLD DOWN AT THE DOOR TO GO BACK OUT'});
+    cl(15, 19, 5); cl(22, 17, 5); cl(29, 18, 5); cl(36, 16, 4);
+    gem(17, 19, 'c'); gem(24, 17, 'c'); gem(31, 18, 'y'); gem(37, 16, 'c');
+    on('oil', 11, 19);
+    L.ent('cloudling', OX + 20, OY + 13, {r: 40, dir: 1});
+    L.ent('cloudling', OX + 33, OY + 12, {r: 34, dir: -1, sp: 0.8});
+
+    // ---- screen 2 (40-79): up on bounce clouds under a storm cloud, then down a chain of clouds with a swooper ----
+    cl(40, 16, 4); cl(46, 17, 4, T.BOUNCE);
+    cl(52, 8, 6); gem(54, 8, 'y'); gem(56, 8, 'c');
+    L.ent('stormcloud', OX + 55, OY + 3, {cyc: 150, off: 0, len: 36});
+    cl(60, 10, 4); cl(66, 12, 4); cl(72, 14, 5); cl(78, 15, 1);
+    gem(62, 10, 'c'); gem(68, 12, 'c'); gem(74, 14, 'y');
+    L.ent('cloudling', OX + 63, OY + 5, {r: 14, dir: 1, swoop: true});
+    L.ent('cloudling', OX + 69, OY + 8, {r: 18, dir: -1, swoop: true, sp: 0.7});
+    on('oil', 57, 8);
+
+    // ---- screen 3 (80-119): the storm crossing: a ferry, crumbling clouds and two storm clouds, then a lamp ----
+    cl(80, 15, 5);
+    L.ent('mover', OX + 85, OY + 15, {to: [OX + 94, OY + 15], per: 340});
+    cl(97, 14, 4); L.ent('crumble', OX + 102, OY + 13, {}); L.ent('crumble', OX + 108, OY + 12, {});
+    cl(113, 12, 7); L.lamp(OX + 116, OY + 11, 'THE STORM CROSSING');
+    L.ent('stormcloud', OX + 100, OY + 4, {cyc: 140, off: 40, len: 70});
+    L.ent('stormcloud', OX + 110, OY + 4, {cyc: 140, off: 110, len: 60});
+    L.ent('cloudling', OX + 90, OY + 9, {r: 16, dir: 1});
+    gem(99, 14, 'c'); gem(103, 13, 'y'); gem(109, 12, 'c'); gem(115, 12, 'r');
+
+    // ---- screen 4 (120-158): a stairway of small clouds up to the vault, with swoopers and a storm cloud ----
+    cl(121, 12, 4); cl(127, 10, 3); cl(132, 8, 3); cl(137, 10, 3); cl(142, 8, 3);
+    L.ent('stormcloud', OX + 130, OY + 3, {cyc: 130, off: 20, len: 36});
+    L.ent('cloudling', OX + 126, OY + 5, {r: 12, dir: 1, swoop: true});
+    L.ent('cloudling', OX + 138, OY + 5, {r: 14, dir: -1, swoop: true, sp: 0.8});
+    L.ent('cloudling', OX + 134, OY + 14, {r: 24, dir: 1});
+    gem(122, 12, 'c'); gem(128, 10, 'c'); gem(133, 8, 'y'); gem(138, 10, 'c'); gem(143, 8, 'r');
+    // the vault: a solid cloud room's floor (row 8) with a roof, treasure, an extra life, oil and the way out
+    blk(147, 8, 11, 4); blk(147, 1, 11, 2);                                                                    // floor and roof
+    blk(157, 2, 2, 6);                                                                                         // back wall
+    [149, 151, 153].forEach((x, i) => gem(x, 8, ['p', 'c', 'y'][i])); on('life', 150, 8); on('oil', 152, 8);
+    L.ent('treasure', OX + 154, OY + 7, {kind: 'crown'});
+    L.ent('clouddoor', OX + 155, OY + 8, {}); L.ent('warp', OX + 155, OY + 8, {id: 'cout', to: 'cdoor', tw: 2, hint: 'HOLD DOWN AT THE DOOR TO GO BACK OUT'});
+    L.ent('sign', OX + 148, OY + 7, {text: ['THE CLOUD', 'VAULT']});
+    L.zones.unshift({x0: OX, y0: OY, x1: OX + 159, y1: OY + 25, name: 'THE CLOUD KINGDOM', music: 'mountain', sky: 'skyisles', skyUp: 0, skyLift: 2900});
+  }
+  // the door in the cloud, three clouds up from the High Perch (level_sky.js): reached by flying (the Perch has a wing gift)
+  function cloudDoor() {
+    const PX = 394;
+    L.fill(PX - 4, 326, 4, 1, T.CLOUD); L.fill(PX + 3, 320, 4, 1, T.CLOUD);
+    L.ent('gem', PX - 3, 325, {kind: 'c'}); L.ent('gem', PX + 4, 319, {kind: 'y'});
+    L.fill(PX - 5, 312, 12, 1, T.CLOUD);
+    L.ent('clouddoor', PX, 312, {}); L.ent('warp', PX, 312, {id: 'cdoor', to: 'cin', tw: 2, hint: 'A DOOR IN A CLOUD. HOLD DOWN AT THE DOOR TO GO IN'});
+    L.ent('gift', PX + 5, 311, {kind: 'w2'});
+  }
+  L.bigParts.push(cloudDoor, cloudKingdom);
 })();
 </script>
 <script type="text/x-thing-js" data-f="level_moon">
