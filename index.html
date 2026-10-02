@@ -54,7 +54,7 @@ const G = window.G = {
   H: 200,        // logical view height (C64 screen height)
   W: 320,        // logical view width (adaptive, set by main.js)
   HUD_H: 22,     // height of the top HUD bar
-  VERSION: '1.52', // shown on the title screen; goes up by 0.01 with every build handed over
+  VERSION: '1.53', // shown on the title screen; goes up by 0.01 with every build handed over
   FPS: 60
 };
 
@@ -8532,6 +8532,7 @@ G.Ents = (function () {
   G.pieceCount = S => Object.keys(S.pk || {}).length;
   G.pictureDone = (S, p) => { for (let k = 0; k < 9; k++) if (!(S.pk || {})[p * 9 + k]) return false; return true; };
   E.def('jig', {w: 18, h: 18, item: true, layer: 0, art: 'jig0',
+    init(e) { const S = st(); if (S && S.pk && S.pk[e.n]) e.dead = true; },                // (a piece that was moved: one already found does not come back)
     touch(e) {
       const S = st(); S.taken[e.key] = true; S.pk = S.pk || {}; S.pk[e.n] = 1; e.dead = true;
       if (e.n < 9) S.pieces |= 1 << e.n;
@@ -15376,6 +15377,14 @@ G.Level = (function () {
     }
     L.escPads = pads;
   });
+  // Puzzle piece 26 sat 29 tiles from piece 24 on the Snow Peaks: it now waits in the Cloud Kingdom's vault (level_cloud.js), on a
+  // little ledge. (Piece 26 is in the third picture, so the first picture and the lair door do not depend on it.)
+  L.bigParts.push(function movePiece() {
+    const e = (L.ents || []).find(q => q[0] === 'jig' && q[3] && q[3].n === 26);
+    if (!e) return;
+    e[1] = 1460 + 151; e[2] = 8 + 5;
+    L.fill(1460 + 149, 8 + 6, 5, 1, G.T_.CLOUDB);
+  });
 })();
 </script>
 <script type="text/x-thing-js" data-f="hud">
@@ -15721,7 +15730,7 @@ G.Map = (function () {
   const missing = () => {
     if (!(G.hasPower && G.hasPower('piecemap'))) return [];
     const S = G.Game && G.Game.st, taken = (S && S.taken) || {};
-    return ((G.Level && G.Level.ents) || []).filter(e => e[0] === 'jig' && !taken['jig:' + e[1] + ':' + e[2]]);
+    return ((G.Level && G.Level.ents) || []).filter(e => e[0] === 'jig' && !taken['jig:' + e[1] + ':' + e[2]] && !(S && S.pk && e[3] && S.pk[e[3].n]));
   };
   Mp.pieceHit = function (mx, my) {
     if (!lastAt) return null;
@@ -15782,7 +15791,7 @@ G.Map = (function () {
     if (!(G.hasPower && G.hasPower('piecemap'))) return;
     const S = G.Game && G.Game.st, taken = (S && S.taken) || {};
     for (const e of (G.Level && G.Level.ents) || []) {
-      if (e[0] !== 'jig' || taken['jig:' + e[1] + ':' + e[2]]) continue;
+      if (e[0] !== 'jig' || taken['jig:' + e[1] + ':' + e[2]] || (S && S.pk && e[3] && S.pk[e[3].n])) continue;
       const [x, y] = at(e[1], e[2]), px = Math.round(x), py = Math.round(y);
       ctx.fillStyle = '#000'; ctx.fillRect(px - r - 1, py - r - 1, 2 * r + 3, 2 * r + 3);
       ctx.fillStyle = (tick >> 3) & 1 ? '#ffff46' : '#ff9a3c'; ctx.fillRect(px - r, py - r, 2 * r + 1, 2 * r + 1);
