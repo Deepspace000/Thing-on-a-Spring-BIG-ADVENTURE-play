@@ -52,7 +52,7 @@ const G = window.G = {
   H: 200,        // logical view height (C64 screen height)
   W: 320,        // logical view width (adaptive, set by main.js)
   HUD_H: 22,     // height of the top HUD bar
-  VERSION: '1.63', // shown on the title screen; goes up by 0.01 with every build handed over
+  VERSION: '1.64', // shown on the title screen; goes up by 0.01 with every build handed over
   FPS: 60
 };
 
@@ -7765,6 +7765,7 @@ G.Hero = (function () {
       let g = (H.vy < 0 ? H.GUP : H.GDN) * (H.inWater ? 0.35 : (space ? 0.35 : 1));
       let cap = H.inWater ? 1.6 : (H.wings > 0 ? FALL_WINGS : (space ? 2.2 : H.TERM));
       if (!H.ground && !H.inWater && G.hasPower && G.hasPower('prop') && IN.s.rf) {
+        H.propLast = H.tick;                                                    // (drawn as a spinning rotor over his head while it works)
         // the propeller in the sky lands: it brakes a fall hard, and with the lighter gravity it lifts Thing from a hover
         if (H.env === 'sky') { H.vy = Math.max(H.vy - (H.vy >= 0 ? 0.6 : 0.34), -2.1); g = H.GUP; H.propT = (H.propT || 0) + 1; }
         else cap = Math.min(cap, 1.3);
@@ -8034,6 +8035,12 @@ G.Hero = (function () {
       try { drawBody(ctx, camX, camY); } finally { ctx.drawImage = di; }
       G.Buddy.track(cap[0]);
     } else drawBody(ctx, camX, camY);
+    if (H.propLast !== undefined && H.tick - H.propLast < 3 && !H.ground && !H.dead) {                     // the propeller: a pole and two red blades that spin
+      const py = feet - (HA.oy || 21) - 3, w = ((H.tick >> 1) & 1) ? 7 : 3;
+      ctx.fillStyle = G.PAL[0]; ctx.fillRect(x - w - 1, py - 3, 2 * w + 2, 4); ctx.fillRect(x - 1, py, 3, 3);
+      ctx.fillStyle = G.PAL[2]; ctx.fillRect(x - w, py - 2, 2 * w, 2); ctx.fillStyle = G.PAL[10]; ctx.fillRect(x - w, py - 2, 2 * w, 1);
+      ctx.fillStyle = G.PAL[7]; ctx.fillRect(x, py - 2, 1, 2); ctx.fillStyle = G.PAL[11]; ctx.fillRect(x, py, 1, 2);
+    }
     if (H.inWater && G.hasPower && G.hasPower('diver')) ctx.drawImage(dome(), x - 10, feet - (H.ducking ? 22 : 30));
     else if (suited) ctx.drawImage(spaceDome(), x - 10, feet - (H.ducking ? 22 : 30));
     if (H.inWater && !H.dead && !(G.hasPower && G.hasPower('diver')) && H.breath !== undefined && G.Font) {       // (no helmet: the seconds of breath left)
@@ -8064,8 +8071,10 @@ G.Hero = (function () {
       const S = G.Game && G.Game.st;
       if (!S || !S.buddy) { B.on = false; return; }
       const tx = H.cx(), ty = H.feet();
-      if (!B.on || Math.abs(B.x - tx) > 160 || Math.abs(B.y - ty) > 110 || (B.px !== undefined && Math.abs(tx - B.px) + Math.abs(ty - B.py) > 60)) {
-        trail.length = 0; B.x = tx - H.face * 16; B.y = ty; B.on = true;
+      const off = Math.abs(B.x - tx) > 150 || B.y - ty < -85 || B.y - ty > 80;                 // (off the screen: the view is 320 wide round Thing)
+      B.offT = B.on && off ? (B.offT || 0) + 1 : 0;
+      if (!B.on || B.offT > 12 || Math.abs(B.x - tx) > 160 || Math.abs(B.y - ty) > 110 || (B.px !== undefined && Math.abs(tx - B.px) + Math.abs(ty - B.py) > 60)) {
+        trail.length = 0; B.x = tx - H.face * 16; B.y = ty; B.on = true; B.offT = 0;
       }
       B.px = tx; B.py = ty;
       const c = B.cap;
