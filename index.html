@@ -52,7 +52,7 @@ const G = window.G = {
   H: 200,        // logical view height (C64 screen height)
   W: 320,        // logical view width (adaptive, set by main.js)
   HUD_H: 22,     // height of the top HUD bar
-  VERSION: '1.60', // shown on the title screen; goes up by 0.01 with every build handed over
+  VERSION: '1.61', // shown on the title screen; goes up by 0.01 with every build handed over
   FPS: 60
 };
 
@@ -9360,7 +9360,7 @@ G.Ents = (function () {
       meet(e);
       if (e.stun > 0) e.stun--;
       if (e.kb > 0) { e.kb--; E.body(e, e.kdir * 1.4); return; }
-      const dx = H.cx() - e.x, near = abs(dx) < 130 && abs(H.feet() - e.y) < 60 && !H.dead, rage = 1 + (e.hp0 - e.hp) * 0.1;
+      const dx = H.cx() - e.x, near = abs(dx) < 130 && abs(H.feet() - e.y) < 60 && !H.dead, rage = Math.min(e.rageMax || 99, 1 + (e.hp0 - e.hp) * 0.1);
       if (e.mode === 'hop') {
         if (e.ground && --e.cd <= 0) {
           e.dir = near ? (dx < 0 ? -1 : 1) : (abs(e.x - e.bx) > e.r ? (e.x > e.bx ? -1 : 1) : e.dir);
@@ -9377,7 +9377,7 @@ G.Ents = (function () {
       if (near && e.mode === 'walk') { e.dir = dx < 0 ? -1 : 1; sp = 1.0 * rage; }
       else if (abs(e.x - e.bx) > e.r) e.dir = e.x > e.bx ? -1 : 1;
       if (e.ground && !E.floorAhead(e, 4)) e.dir = -e.dir;
-      const moved = E.body(e, e.dir * sp);
+      const moved = E.body(e, e.dir * sp * (e.spd || 1));                     // (spd: a boss that is slower than the rest, such as the Forge Golem)
       if (e.ground && abs(moved) < 0.01) e.dir = -e.dir;
     },
     onStomp: hit, draw: draw});
@@ -14634,7 +14634,7 @@ G.Level = (function () {
      props: ['goldheap', 'chest'], rich: true, boss: {art: 'dragon', fly: true, hp: 9, name: 'THE TREASURE DRAGON'}, piece: 72},
     {col: 1, row: 3, name: 'THE LAVA FORGE', kind: 'up', d0: 1, entry: 'side', exit: 'side', bg: 15, walker: 'gobguard',
      set: ['lava', 'vents', 'movers', 'lava', 'alcove', 'crumble', 'lava', 'flat', 'movers'],
-     props: ['anvil', 'barrel'], boss: {art: 'golem', mode: 'walk', hp: 10, name: 'THE FORGE GOLEM'}, piece: 73, life: true},
+     props: ['anvil', 'barrel'], boss: {art: 'golem', mode: 'walk', hp: 10, spd: 0.5, rageMax: 1.3, name: 'THE FORGE GOLEM'}, piece: 73, life: true},
     {col: 2, row: 3, name: 'THE THRONE ROOM', kind: 'throne', bg: 15, piece: 74},
   ];
   const rx = r => CX0 + r.col * RW, ry = r => CY0 + r.row * RH;
@@ -15109,7 +15109,7 @@ G.Level = (function () {
     L.lamp(E - dir * 47, F - 1, r.name + ': MINI BOSS');
     if (i === 8) L.prop({k: 'altar', x: (E - dir * 32) * 8, y: F * 8, w: 12, h: 15});                  // the Chapel's altarpiece
     if (bo.fly) L.ent('bossfly', hx, F - 9, {art: bo.art, hp: bo.hp, r: 10, name: bo.name, id: 'boss' + i, opens: 'door:' + id});
-    else L.ent('boss', hx, F - 1, {art: bo.art, mode: bo.mode, shot: bo.shot, hp: bo.hp, r: 14, name: bo.name, id: 'boss' + i, opens: 'door:' + id});
+    else L.ent('boss', hx, F - 1, {art: bo.art, mode: bo.mode, shot: bo.shot, hp: bo.hp, spd: bo.spd, rageMax: bo.rageMax, r: 14, name: bo.name, id: 'boss' + i, opens: 'door:' + id});
     if (r.exit === 'side') sideGate(r, F, dir, id);
     else {
       const gx = dir > 0 ? E - 3 : E;
