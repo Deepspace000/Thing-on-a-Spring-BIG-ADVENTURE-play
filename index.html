@@ -52,7 +52,7 @@ const G = window.G = {
   H: 200,        // logical view height (C64 screen height)
   W: 320,        // logical view width (adaptive, set by main.js)
   HUD_H: 22,     // height of the top HUD bar
-  VERSION: '1.65', // shown on the title screen; goes up by 0.01 with every build handed over
+  VERSION: '1.66', // shown on the title screen; goes up by 0.01 with every build handed over
   FPS: 60
 };
 
@@ -6299,6 +6299,20 @@ G.Audio = (function () {
   };
   return A;
 })();
+
+// A steady ticker for the music: a timer in a worker, which a browser does not slow down when the window is behind another one
+// or its tab is in the background (a page's own timers then run about once a second, and the music stutters). If no worker can
+// be made, an ordinary timer. G.Ticker(fn, ms) returns a function that stops it.
+G.Ticker = function (fn, ms) {
+  try {
+    const src = 'setInterval(function(){postMessage(0)},' + ms + ');';
+    const w = new Worker('data:application/javascript;base64,' + btoa(src));
+    w.onmessage = fn; w.onerror = () => {};
+    return () => w.terminate();
+  } catch (e) {}
+  const t = setInterval(fn, ms);
+  return () => clearInterval(t);
+};
 </script>
 <script type="text/x-thing-js" data-f="music">
 /* music.js */
@@ -6306,7 +6320,7 @@ G.Audio = (function () {
 // Original chiptune tracks (written for this remake) and the step sequencer that plays them.
 G.Music = (function () {
   const M = {};
-  let A = null, want = null, cur = null, timer = 0, step = 0, nextT = 0, tr = null;
+  let A = null, want = null, cur = null, stopTick = null, step = 0, nextT = 0, tr = null, bus = null;
   const NOTE = {c: 0, d: 2, e: 4, f: 5, g: 7, a: 9, b: 11};
   const midi = s => { const m = /^([a-g])([#b]?)(\d)$/.exec(s); return 12 * (+m[3] + 1) + NOTE[m[1]] + (m[2] === '#' ? 1 : m[2] === 'b' ? -1 : 0); };
   const hz = m => 440 * Math.pow(2, (m - 69) / 12);
@@ -6352,7 +6366,7 @@ G.Music = (function () {
       bass: r.bass.split(' '), arp: r.arp.split(' ')});
   }
   function sched(s, t) {
-    const b = (s >> 4) % tr.lead.length, k = s & 15, ch = tr.chords[b], sd = 60 / tr.bpm / 4, D = A.dest('music');
+    const b = (s >> 4) % tr.lead.length, k = s & 15, ch = tr.chords[b], sd = 60 / tr.bpm / 4, D = bus || A.dest('music');
     const L = tr.lead[b][k];
     if (L != null) {
       let len = 1; while (k + len < 16 && tr.lead[b][k + len] == null && len < 4) len++;
@@ -6371,15 +6385,19 @@ G.Music = (function () {
     const c = A.ctx;
     if (!c || !tr) return;
     if (nextT < c.currentTime - 0.3) nextT = c.currentTime + 0.05;
-    while (nextT < c.currentTime + 0.16) { sched(step++, nextT); nextT += 60 / tr.bpm / 4; }
+    // (nearly a second ahead, so a busy moment does not leave a gap)
+    while (nextT < c.currentTime + 0.7) { sched(step++, nextT); nextT += 60 / tr.bpm / 4; }
   }
   function start(name) {
-    clearInterval(timer); timer = 0; cur = name;
+    if (stopTick) { stopTick(); stopTick = null; } cur = name;
+    // each track plays through its own volume control, so that notes already queued stop at once when the track changes
+    if (bus) { const old = bus; try { old.gain.setTargetAtTime(0, A.ctx.currentTime, 0.02); setTimeout(() => { try { old.disconnect(); } catch (e) {} }, 1500); } catch (e) {} bus = null; }
     if (G.Hubbard) { if (name === 'hubbard') { tr = null; if (A && A.ctx) G.Hubbard.start(A); return; } G.Hubbard.stop(); }
     tr = name ? get(name) : null;
     if (!tr || !A || !A.ctx) return;
     step = 0; nextT = A.ctx.currentTime + 0.06;
-    timer = setInterval(tick, 30);
+    bus = A.ctx.createGain(); bus.connect(A.dest('music'));
+    stopTick = G.Ticker(tick, 30);
   }
   M.attach = function (a) { A = a; if (want) start(want); };
   M.play = function (name) {
@@ -6987,7 +7005,7 @@ G.SidSynth = G.SidModule();
 G.Hubbard = (function () {
   const IMG = ThingDisk.data.music, ZP = ThingDisk.data.musicZp;
   const HB = {on: false};
-  let A = null, cpu = null, node = null, send = null, gain = null, making = null, t = 0, timer = 0;
+  let A = null, cpu = null, node = null, send = null, gain = null, making = null, t = 0, stopTick = null;
   const writes = [];
   function boot() {
     const mem = new Uint8Array(65536), raw = atob(IMG);
@@ -7021,7 +7039,7 @@ G.Hubbard = (function () {
     const c = A && A.ctx;
     if (!HB.on || !c || !send) return;
     if (t < c.currentTime - 0.3) t = c.currentTime + 0.03;
-    while (t < c.currentTime + 0.25) {                        // (a quarter of a second ahead: a busy frame does not starve the sound)
+    while (t < c.currentTime + 1.2) {                         // (more than a second ahead: a busy moment, or a slow timer, does not starve the sound)
       writes.length = 0; cpu.call(0xc012);
       send({type: 'frame', t: t, writes: writes.slice()});
       t += 0.02;
@@ -7034,7 +7052,7 @@ G.Hubbard = (function () {
     const go = () => {
       if (!HB.on) return;
       send({type: 'reset'}); boot(); t = c.currentTime + 0.05;
-      clearInterval(timer); timer = setInterval(tick, 25); tick();
+      if (stopTick) stopTick(); stopTick = G.Ticker(tick, 25); tick();
     };
     if (send) { go(); return; }
     if (!making) making = make(c).then(r => {
@@ -7044,7 +7062,7 @@ G.Hubbard = (function () {
     making.then(go);
   };
   HB.stop = function () {
-    HB.on = false; clearInterval(timer); timer = 0;
+    HB.on = false; if (stopTick) { stopTick(); stopTick = null; }
     if (send) { send({type: 'reset'}); send({type: 'state', regs: new Array(25).fill(0)}); }
   };
   HB.level = 0.8;
@@ -8701,6 +8719,35 @@ G.Ents = (function () {
   function liftGo(c, y) { c.want = y; c.last = y; E.sfx('gate'); if (H.gcar === c && G.Ach) G.Ach.add('lifts'); }
   const hinted = {};
   function hintOnce(k, s) { if (!hinted[k] && GM().toast) { hinted[k] = true; GM().toast(s); } }
+
+  // call a lift to the stop at pixel row y (the bells at the stops, below); returns 'here', 'coming', or 'nopower'
+  E.callLift = function (c, y) {
+    if (!c) return 'nopower';
+    if (!c.pow) return 'nopower';
+    if (abs(c.y - y) < 2 && c.want === null) return 'here';
+    if (c.want !== y) liftGo(c, y);
+    return 'coming';
+  };
+  // ---- the bell at each end of a lift's run: walk into it to ring it and call the lift if it is not there ----
+  E.def('liftbell', {w: 14, h: 24, layer: 0,
+    init(e) { e.ring = 0; e.cd = 0; },
+    touch(e) {
+      if (e.cd > 0) return;
+      e.cd = 90; e.ring = 40; E.sfx('lamp');
+      const c = E.byId[e.lid], r = E.callLift(c, e.sy);
+      if (GM().toast) GM().toast(r === 'here' ? 'THE LIFT IS HERE' : (r === 'coming' ? 'DING! THE LIFT IS COMING' : 'THIS LIFT HAS NO POWER. FIND THE SWITCH THAT TURNS IT ON'));
+    },
+    upd(e) { if (e.cd > 0) e.cd--; if (e.ring > 0) e.ring--; },
+    draw(e, ctx, x, y) {
+      const P = G.PAL, sw = e.ring > 0 ? Math.round(Math.sin(e.ring * 0.9) * 3 * e.ring / 40) : 0;
+      ctx.fillStyle = P[0]; ctx.fillRect(x - 1, y - 24, 3, 24); ctx.fillRect(x - 1, y - 24, 12, 3);                 // post and arm
+      ctx.fillStyle = P[9]; ctx.fillRect(x, y - 23, 1, 22); ctx.fillRect(x, y - 23, 10, 1);
+      const bx = x + 8 + sw, by = y - 21;                                                                        // the bell hangs from the arm
+      ctx.fillStyle = P[0]; ctx.fillRect(bx - 3, by, 8, 8); ctx.fillRect(bx - 4, by + 6, 10, 3);
+      ctx.fillStyle = P[7]; ctx.fillRect(bx - 2, by + 1, 6, 6); ctx.fillRect(bx - 3, by + 6, 8, 2); ctx.fillStyle = P[8]; ctx.fillRect(bx + 2, by + 2, 2, 5); ctx.fillStyle = P[1]; ctx.fillRect(bx - 2, by + 2, 1, 3);
+      ctx.fillStyle = P[0]; ctx.fillRect(bx, by + 9, 2, 2);
+      if (e.ring > 28) { ctx.fillStyle = P[7]; ctx.fillRect(bx - 7, by + 1, 1, 3); ctx.fillRect(bx + 8, by + 1, 1, 3); ctx.fillRect(bx - 9, by + 5, 1, 2); ctx.fillRect(bx + 10, by + 5, 1, 2); }
+    }});
 
   E.def('lift', {car: true, lift: true, w: 48, h: 8, look: 'metal',
     init(c, o) {
@@ -15502,6 +15549,21 @@ G.Level = (function () {
     if (!e) return;
     e[1] = 1460 + 151; e[2] = 8 + 5;
     L.fill(1460 + 149, 8 + 6, 5, 1, G.T_.CLOUDB);
+  });
+  // a bell at each end of every lift's run (ents_e.js): on the solid floor beside the shaft, so it can be rung when the lift is away
+  L.bigParts.push(function liftBells() {
+    const Wd = G.World, K = (x, y) => Wd.KIND[Wd.at(x, y)], sol = k => k === 1 || k === 2;
+    for (const e of L.ents.slice()) {
+      if (e[0] !== 'lift' || !e[3] || !e[3].id) continue;
+      const lx = e[1], stops = [e[2], e[3].to];
+      for (const row of stops) {
+        let spot = null;
+        for (let d = 1; d <= 8 && !spot; d++) for (const x of [lx - d, lx + 6 + d - 1]) {
+          if (sol(K(x, row)) && K(x, row - 1) === 0 && K(x, row - 2) === 0 && K(x, row - 3) === 0 && K(x, row - 4) === 0) { spot = x; break; }
+        }
+        if (spot !== null) L.ent('liftbell', spot, row - 1, {lid: e[3].id, sy: row * 8});
+      }
+    }
   });
 })();
 </script>
