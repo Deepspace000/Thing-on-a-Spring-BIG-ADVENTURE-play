@@ -52,7 +52,7 @@ const G = window.G = {
   H: 200,        // logical view height (C64 screen height)
   W: 320,        // logical view width (adaptive, set by main.js)
   HUD_H: 22,     // height of the top HUD bar
-  VERSION: '1.62', // shown on the title screen; goes up by 0.01 with every build handed over
+  VERSION: '1.63', // shown on the title screen; goes up by 0.01 with every build handed over
   FPS: 60
 };
 
@@ -7703,7 +7703,7 @@ G.Hero = (function () {
       H.coyote++;
       H.jetOn = !lock && !H.inWater && H.env === 'space' && !!(G.hasPower && G.hasPower('suit'));
       H.gfly = !lock && !H.inWater && !H.jetOn && H.wings > 0 && !!(G.hasPower && G.hasPower('goldwings'));
-      H.swim = !lock && H.inWater;                                 // (anyone can swim; only the helmet gives air)
+      H.swim = !lock && H.inWater && (!!(G.hasPower && G.hasPower('diver')) || (H.pureWater && (H.breath === undefined || H.breath > 0)));        // (without the helmet Thing can swim in water only while his breath lasts, and not at all in chocolate or mud)
       if (H.jbuf > 0 && H.coyote < 6 && !lock && H.mode !== 'spin' && H.mode !== 'leap' && H.mode !== 'hop') H.jump(dir);
       else if (H.jetOn) {
         // the space suit's jetpack: it pushes Thing the way the arrows point; in space he keeps drifting, and the weak
@@ -7741,7 +7741,7 @@ G.Hero = (function () {
         H.mode = 'air'; H.fallV = 0; H.jbuf = 0;
         if (H.tick % 26 === 0 && (s.u || s.d || dir) && G.FX) G.FX.burst(H.cx() + H.face * 4, H.feet() - 22, 1, [14, 1], 0.3, 22);
       } else {
-        if (H.inWater && !lock && hit.f && (H.swimCd || 0) <= 0) { H.vy = -2.3; H.swimCd = 10; H.puff(H.cx(), H.feet(), 3, 0.5); H.sfx('splash'); }
+        if (H.inWater && !lock && hit.f && (H.swimCd || 0) <= 0 && !(H.pureWater && !(G.hasPower && G.hasPower('diver')))) { H.vy = -2.3; H.swimCd = 10; H.puff(H.cx(), H.feet(), 3, 0.5); H.sfx('splash'); }
         else if (H.wings > 0 && !lock && hit.f && H.flapCd <= 0) flap();
         else if (!lock && hit.f && H.airJump > 0 && G.hasPower && G.hasPower('coil')) {
           H.airJump = 0; H.vy = -3.4; H.fallV = 0; H.jbuf = 0; H.sfx('jump'); H.puff(H.cx(), H.feet(), 5, 0.7);
@@ -7908,6 +7908,7 @@ G.Hero = (function () {
 
     const liq = P.liquidAt(b), wasW = H.inWater, diver = G.hasPower && G.hasPower('diver');
     H.inWater = liq === T_.WATER || liq === T_.CHOC || liq === T_.MUD;
+    H.pureWater = liq === T_.WATER;
     if (H.inWater && !wasW) { H.puff(H.cx(), H.feet() - 4, 5, 0.9); H.sfx('splash'); }
     H.env = G.Level && G.Level.envAt ? G.Level.envAt(H.cx() >> 3, (H.feet() - 6) >> 3) : '';
     if (H.swimCd > 0) H.swimCd--;
@@ -15811,9 +15812,9 @@ G.Map = (function () {
     Mp.sel = (Mp.sel + d + n) % n;
   };
   let lastAt = null;                                   // how the last draw put map points on the screen
-  Mp.hit = function (mx, my) {
+  Mp.hit = function (mx, my, reach) {
     if (!lastAt) return -1;
-    let best = -1, bd = 13;
+    let best = -1, bd = reach || 13;
     Mp.lamps.forEach((t, i) => { const [x, y] = lastAt(t.x / 8 / MS, (t.y - 6) / 8 / MS), d = Math.max(Math.abs(x - mx), Math.abs(y - my)); if (d < bd) { bd = d; best = i; } });
     return best;
   };
@@ -16714,19 +16715,27 @@ G.Game = (function () {
     }
     if (IN.take('map') || IN.take('start') || IN.take('back') || IN.take('enter') || IN.take('bomb') || IN.take('padB') || ptrTap()) { IN.take('ok'); IN.take('padB'); setMode(mapBack); sfx('menu'); return; }
     // on the whole world: left and right pick a save point, down zooms in
-    if (!Mp.zoom && Mp.lamps.length) {
-      if (IN.take('l')) { Mp.pick(-1); sfx('menu'); }
-      if (IN.take('r')) { Mp.pick(1); sfx('menu'); }
-      if (IN.take('d')) { Mp.toggle(G.W, 164); sfx('menu'); }
-      if (IN.take('u') && Mp.nextPiece()) sfx('menu');
+    if (!Mp.zoom) {
+      if (Mp.lamps.length) {
+        if (IN.take('l')) { Mp.pick(-1); sfx('menu'); }
+        if (IN.take('r')) { Mp.pick(1); sfx('menu'); }
+        if (IN.take('u') && Mp.nextPiece()) sfx('menu');
+      }
+      if (IN.take('d')) { Mp.toggle(G.W, 164); sfx('menu'); }                       // (Down zooms in, with or without save points)
     }
-    if (IN.take('ok')) { if (Mp.sel >= 0) { travelTo(Mp.lamps[Mp.sel]); return; } Mp.toggle(G.W, 164); sfx('menu'); }
+    // Fire: start from the picked save point; close up, with none picked, it picks the lamp nearest the middle of the screen, or else goes back out
+    if (IN.take('ok')) {
+      if (Mp.sel >= 0) { travelTo(Mp.lamps[Mp.sel]); return; }
+      if (Mp.zoom) { const c = Mp.hit(G.W / 2, 100, 34); if (c >= 0) { Mp.sel = c; sfx('menu'); return; } }
+      Mp.toggle(G.W, 164); sfx('menu');
+    }
   }
   function drawMap(ctx) {
     const vw = G.W;
     ctx.fillStyle = '#0e1330'; ctx.fillRect(0, 0, vw, G.H);
     F.draw(ctx, 'MAP  ' + zoneOf(H.cx() >> 3, (H.feet() - 4) >> 3)[0], vw / 2, 5, 7, {align: 'c', shadow: 0});
     G.Map.draw(ctx, vw, 164, 18, tick, F);
+    F.draw(ctx, 'VERSION ' + G.VERSION, vw - 3, 3, 11, {align: 'r', small: true});
     zoomBtns(vw).forEach((b, k) => {
       const live = k === 0 ? !G.Map.zoom : G.Map.zoom;
       ctx.fillStyle = PAL[0]; ctx.fillRect(b[0] - 1, b[1] - 1, b[2] + 2, b[3] + 2); ctx.fillStyle = live ? PAL[6] : PAL[11]; ctx.fillRect(b[0], b[1], b[2], b[3]);
@@ -16735,9 +16744,9 @@ G.Game = (function () {
     const tch = IN.device === 'touch';
     const pk = G.Map.selected(), nl = G.Map.lamps.length;
     const help = pk ? pk.label + (tch ? ' - TAP IT AGAIN TO START THERE' : ' - FIRE: START FROM HERE')
-      : G.Map.zoom ? (tch ? 'DRAG: MOVE  TAP A LAMP: PICK IT  -: WORLD' : IN.device === 'mouse' ? 'DRAG: MOVE  CLICK A LAMP: PICK IT  WHEEL OR -: WORLD' : 'ARROWS: MOVE  FIRE: WORLD  M OR B: BACK')
-      : nl ? (tch ? 'TAP A YELLOW LAMP TO PICK IT  +: ZOOM IN' : IN.device === 'mouse' ? 'CLICK A YELLOW LAMP TO PICK IT  WHEEL OR +: ZOOM' : 'LEFT RIGHT: PICK A SAVE POINT  DOWN: ZOOM  B: BACK')
-      : 'EXPLORED ' + G.Map.percent() + '%  ' + (tch ? 'DOUBLE TAP OR +: ZOOM' : IN.device === 'mouse' ? 'WHEEL OR +: ZOOM  M OR B: BACK' : 'FIRE: ZOOM  M OR B: BACK');
+      : G.Map.zoom ? (tch ? 'DRAG: MOVE  TAP A LAMP: PICK IT  -: WORLD' : IN.device === 'mouse' ? 'DRAG: MOVE  CLICK A LAMP: PICK IT  WHEEL OR -: WORLD' : 'ARROWS: MOVE  FIRE: PICK THE LAMP IN THE MIDDLE  M OR B: BACK')
+      : nl ? (tch ? 'TAP A YELLOW LAMP TO PICK IT  +: ZOOM IN' : IN.device === 'mouse' ? 'CLICK A YELLOW LAMP TO PICK IT  WHEEL OR +: ZOOM' : 'LEFT RIGHT: PICK A SAVE POINT  DOWN: ZOOM IN  B: BACK')
+      : 'EXPLORED ' + G.Map.percent() + '%  ' + (tch ? 'DOUBLE TAP OR +: ZOOM' : IN.device === 'mouse' ? 'WHEEL OR +: ZOOM  M OR B: BACK' : 'DOWN OR FIRE: ZOOM IN  M OR B: BACK');
     F.draw(ctx, help, vw / 2, 188, pk ? 7 : 12, {align: 'c', shadow: 0});
   }
   function drawPuzzle(ctx) {
