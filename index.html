@@ -52,7 +52,7 @@ const G = window.G = {
   H: 200,        // logical view height (C64 screen height)
   W: 320,        // logical view width (adaptive, set by main.js)
   HUD_H: 22,     // height of the top HUD bar
-  VERSION: '1.64', // shown on the title screen; goes up by 0.01 with every build handed over
+  VERSION: '1.65', // shown on the title screen; goes up by 0.01 with every build handed over
   FPS: 60
 };
 
@@ -8067,6 +8067,15 @@ G.Hero = (function () {
     B.track = function (c) { if (c) B.cap = c; };
     // every tick: follow the path Thing took 16 ticks ago, keeping a step behind when he stops. Left behind, or after Thing has
     // been carried far (a lamp, a warp, a lift), Yellow Thing appears again beside him
+    // is there an enemy (anything that hurts Thing and is not an item) within a few pixels of her at (x, y)?
+    function hitsEnemy(x, y) {
+      const L = G.Ents && G.Ents.list; if (!L) return false;
+      for (let i = 0; i < L.length; i++) {
+        const e = L[i]; if (!e.dmg || e.dead || e.hide || (e.T && (e.T.item || e.T.noContact))) continue;
+        if (Math.abs(e.x - x) < e.w / 2 + 12 && y > e.y - e.h - 4 && y - 22 < e.y + 4) return true;
+      }
+      return false;
+    }
     B.update = function () {
       const S = G.Game && G.Game.st;
       if (!S || !S.buddy) { B.on = false; return; }
@@ -8081,7 +8090,15 @@ G.Hero = (function () {
       trail.push({x: tx, y: ty, img: c ? c[0] : null, ox: c ? c[1] : 0, oy: c ? c[2] : 0});
       if (trail.length > 40) trail.shift();
       const t = trail[Math.max(0, trail.length - 16)];
-      if (!(Math.abs(t.x - tx) < 16 && Math.abs(t.y - ty) < 8) || trail.length < 17) { B.x = t.x; B.y = t.y; }
+      let nx = B.x, ny = B.y;
+      if (!(Math.abs(t.x - tx) < 16 && Math.abs(t.y - ty) < 8) || trail.length < 17) { nx = t.x; ny = t.y; }
+      // she keeps clear of enemies: where the path would take her into one she stays where she is if that is clear, or else
+      // tries the places beside Thing, and failing those stands in him
+      if (hitsEnemy(nx, ny)) {
+        const f = H.face || 1, tries = [[B.x, B.y], [tx - f * 18, ty], [tx + f * 18, ty], [tx - f * 32, ty], [tx + f * 32, ty], [tx, ty - 26], [tx, ty]];
+        const ok = tries.find(c => !hitsEnemy(c[0], c[1])); [nx, ny] = ok || [tx, ty];
+      }
+      B.x = nx; B.y = ny;
       if (t.img) { B.img = t.img; B.ox = t.ox; B.oy = t.oy; }
     };
     B.draw = function (ctx, camX, camY) {
